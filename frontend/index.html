@@ -741,7 +741,7 @@ function pageSrvDetails() {
     <div class="panel">
     ${showFile?`<div class="form-section"><div class="form-section-title">File Sync Configuration</div>
       <div class="form-grid">
-        <div class="form-row"><label class="form-label">Target VM IP Address</label><input id="f-ip" class="input" placeholder="20.86.145.98"/></div>
+        <div class="form-row"><label class="form-label">Target VM IP Address</label><input id="f-ip" class="input" placeholder="e.g. 10.0.0.5 or your-vm-hostname"/></div>
         <div class="form-row"><label class="form-label">Sync User</label><input id="f-user" class="input" value="moodlesync"/></div>
         <div class="form-row"><label class="form-label">SSH Key Path</label><input id="f-key" class="input" value="/root/.ssh/moodle_rsync_ed25519"/></div>
         <div class="form-row"><label class="form-label">Source Path</label><input id="f-src" class="input" value="/var/www/Azure-MoodleData/"/></div>
@@ -1391,7 +1391,7 @@ function pageFileSettings() {
     <div class="page-header"><div class="page-title">File Sync Settings</div><div class="page-sub">Configure rsync and lsyncd settings</div></div>
     <div class="panel"><div class="panel-title">${ICONS.settings} File Sync Configuration</div>
     <div class="form-grid">
-      <div class="form-row"><label class="form-label">Target VM IP</label><input id="fs-ip" class="input" placeholder="20.86.145.98"/></div>
+      <div class="form-row"><label class="form-label">Target VM IP</label><input id="fs-ip" class="input" placeholder="e.g. 10.0.0.5 or your-vm-hostname"/></div>
       <div class="form-row"><label class="form-label">Sync User</label><input id="fs-user" class="input"/></div>
       <div class="form-row"><label class="form-label">SSH Key Path</label><input id="fs-key" class="input"/></div>
       <div class="form-row"><label class="form-label">Source Path</label><input id="fs-src" class="input"/></div>
