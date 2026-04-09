@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+venv/
+.venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# Environment
+.env
+!.env.example
+
+# Runtime data / SQLite databases
+data/transfers.db
+data/db_replication.db
+data/*.db
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docker
+.docker/
+
+# Secrets / Keys
+*.pem
+*.key
+*.p12
+id_rsa
+id_ed25519
+!*.pub

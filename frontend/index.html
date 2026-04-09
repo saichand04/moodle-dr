@@ -1,0 +1,2324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Moodle DR Dashboard v11</title>
+<link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,600,700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0b14;--bg1:#0e0f1e;--bg2:#13152a;--bg3:#1a1d35;--bg4:#212540;
+  --border:rgba(99,102,241,.12);--border2:rgba(99,102,241,.25);--border3:rgba(99,102,241,.45);
+  --text:#e8e9f3;--text2:#9395a8;--text3:#5a5c72;--text4:#363852;
+  --cyan:#22d3ee;--cyan-glow:rgba(34,211,238,.15);--cyan-bd:rgba(34,211,238,.3);
+  --violet:#818cf8;--violet-bg:rgba(129,140,248,.12);--violet-bd:rgba(129,140,248,.3);
+  --green:#34d399;--green-bg:rgba(52,211,153,.1);--green-bd:rgba(52,211,153,.25);
+  --amber:#fbbf24;--amber-bg:rgba(251,191,36,.1);--amber-bd:rgba(251,191,36,.25);
+  --red:#f87171;--red-bg:rgba(248,113,113,.1);--red-bd:rgba(248,113,113,.25);
+  --chart-1:#22d3ee;--chart-2:#818cf8;--chart-3:#34d399;--chart-4:#f472b6;--chart-5:#fbbf24;
+  --r:8px;--r2:12px;--r3:16px;--r-pill:9999px;
+  --sans:'Satoshi',ui-sans-serif,system-ui,sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,monospace;
+  --sidebar-w:230px;--sidebar-c:54px;
+}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.5;overflow:hidden}
+#welcome-screen{position:fixed;inset:0;z-index:100;background:var(--bg);display:flex;align-items:center;justify-content:center;opacity:1;transition:opacity .6s ease}
+#welcome-screen.fade-out{opacity:0;pointer-events:none}
+#welcomeCanvas{position:absolute;inset:0;width:100%;height:100%}
+.wc-center{position:relative;z-index:2;text-align:center;max-width:880px;padding:40px 24px}
+.wc-tag{font-size:10px;font-weight:600;letter-spacing:.18em;color:var(--violet);text-transform:uppercase;margin-bottom:16px}
+.wc-title{font-size:52px;font-weight:700;line-height:1.1;margin-bottom:12px;background:linear-gradient(135deg,#22d3ee,#818cf8);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.wc-sub{font-size:16px;color:var(--text2);margin-bottom:10px}
+.wc-desc{font-size:13px;color:var(--text3);max-width:480px;margin:0 auto 32px}
+.wc-cards{display:flex;gap:16px;justify-content:center;flex-wrap:wrap;margin-bottom:28px}
+.wc-card{background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r2);padding:24px 20px;width:246px;text-align:left;cursor:pointer;transition:border-color .2s,transform .2s;display:flex;flex-direction:column;gap:10px}
+.wc-card:hover{border-color:var(--violet-bd);transform:translateY(-2px)}
+.wc-card.featured{border-color:var(--cyan-bd);background:linear-gradient(135deg,rgba(34,211,238,.05),rgba(129,140,248,.05))}
+.wc-card-icon{width:36px;height:36px;border-radius:var(--r);display:flex;align-items:center;justify-content:center}
+.wc-card-icon.cyan{background:var(--cyan-glow)} .wc-card-icon.violet{background:var(--violet-bg)} .wc-card-icon.grad{background:linear-gradient(135deg,rgba(34,211,238,.15),rgba(129,140,248,.15))}
+.wc-card h3{font-size:14px;font-weight:600;color:var(--text)}
+.wc-card p{font-size:12px;color:var(--text3);line-height:1.5}
+.wc-card-tags{display:flex;gap:6px;flex-wrap:wrap}
+.wc-tag-pill{font-size:10px;padding:2px 8px;border-radius:var(--r-pill);background:var(--bg3);color:var(--text3);border:1px solid var(--border)}
+.wc-btn{height:36px;padding:0 16px;border-radius:var(--r);font-size:13px;font-weight:500;cursor:pointer;border:1px solid;transition:all .15s;width:100%;display:flex;align-items:center;justify-content:center;gap:6px;margin-top:auto}
+.wc-btn.violet{background:var(--violet-bg);border-color:var(--violet-bd);color:var(--violet)} .wc-btn.violet:hover{background:rgba(129,140,248,.2)}
+.wc-btn.cyan{background:var(--cyan-glow);border-color:var(--cyan-bd);color:var(--cyan)} .wc-btn.cyan:hover{background:rgba(34,211,238,.2)}
+.wc-skip{font-size:13px;color:var(--text3)}
+.wc-skip a{color:var(--text2);cursor:pointer;text-decoration:underline;text-decoration-color:var(--border2)}
+.shell{display:flex;height:100vh;overflow:hidden}
+.sidebar{width:var(--sidebar-w);background:var(--bg1);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;transition:width .25s ease;overflow:hidden}
+.sidebar.collapsed{width:var(--sidebar-c)}
+.sb-header{display:flex;align-items:center;gap:10px;padding:16px 14px 12px;border-bottom:1px solid var(--border);min-height:57px}
+.sb-logo-mark{width:28px;height:28px;border-radius:var(--r);background:linear-gradient(135deg,var(--cyan),var(--violet));display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.sb-logo-mark svg{width:14px;height:14px;stroke:white}
+.sb-logo-text{font-size:13px;font-weight:700;color:var(--text);white-space:nowrap;opacity:1;transition:opacity .2s}
+.sidebar.collapsed .sb-logo-text{opacity:0;width:0;overflow:hidden}
+.sb-collapse-btn{margin-left:auto;width:24px;height:24px;border:none;background:none;cursor:pointer;color:var(--text3);display:flex;align-items:center;justify-content:center;border-radius:var(--r);transition:color .15s,background .15s;flex-shrink:0}
+.sb-collapse-btn:hover{color:var(--text);background:var(--bg3)}
+.sb-nav{flex:1;overflow-y:auto;padding:8px 0;scrollbar-width:none}
+.sb-nav::-webkit-scrollbar{display:none}
+.sb-group-label{font-size:9px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--text4);padding:8px 14px 4px;white-space:nowrap;opacity:1;transition:opacity .2s}
+.sidebar.collapsed .sb-group-label{opacity:0}
+.sb-item{display:flex;align-items:center;gap:10px;padding:7px 14px;cursor:pointer;border-left:2px solid transparent;transition:all .15s;white-space:nowrap;position:relative;color:var(--text2)}
+.sb-item:hover{background:var(--bg2);color:var(--text)}
+.sb-item.active{border-left-color:var(--violet);background:var(--violet-bg);color:var(--violet)}
+.sb-item-label{font-size:13px;font-weight:500;opacity:1;transition:opacity .2s}
+.sidebar.collapsed .sb-item-label{opacity:0;width:0;overflow:hidden}
+.sb-item-icon{width:16px;height:16px;flex-shrink:0}
+.sb-tooltip{display:none;position:absolute;left:calc(var(--sidebar-c) + 8px);top:50%;transform:translateY(-50%);background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r);padding:4px 10px;font-size:12px;white-space:nowrap;z-index:200;pointer-events:none}
+.sidebar.collapsed .sb-item:hover .sb-tooltip{display:block}
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+.topbar{height:57px;background:var(--bg1);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px;gap:16px;flex-shrink:0}
+.topbar-breadcrumb{display:flex;align-items:center;gap:6px;font-size:13px;flex:1;min-width:0}
+.bc-root{color:var(--text3)} .bc-sep{color:var(--text4)} .bc-page{color:var(--text2);font-weight:500}
+.topbar-pills{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.status-pill{display:flex;align-items:center;gap:6px;padding:0 10px;height:28px;border-radius:var(--r-pill);border:1px solid;font-size:12px;font-weight:500;font-family:var(--mono)}
+.status-pill.healthy{background:var(--green-bg);border-color:var(--green-bd);color:var(--green)}
+.status-pill.error{background:var(--red-bg);border-color:var(--red-bd);color:var(--red)}
+.status-pill.warn{background:var(--amber-bg);border-color:var(--amber-bd);color:var(--amber)}
+.status-pill.unknown{background:var(--bg3);border-color:var(--border2);color:var(--text3)}
+.status-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.status-dot.healthy{background:var(--green);box-shadow:0 0 8px var(--green),0 0 20px rgba(52,211,153,.3)}
+.status-dot.error{background:var(--red);box-shadow:0 0 8px var(--red),0 0 20px rgba(248,113,113,.3)}
+.status-dot.warn{background:var(--amber);box-shadow:0 0 8px var(--amber),0 0 20px rgba(251,191,36,.3)}
+.status-dot.unknown{background:var(--text4)}
+.topbar-clock{font-family:var(--mono);font-size:13px;color:var(--cyan);letter-spacing:.05em;flex-shrink:0}
+.topbar-date{font-size:11px;color:var(--text3);flex-shrink:0}
+.wiz-steps{background:var(--bg1);border-bottom:1px solid var(--border);padding:0 24px;display:flex;align-items:center;overflow-x:auto;scrollbar-width:none;flex-shrink:0}
+.wiz-steps::-webkit-scrollbar{display:none}
+.ws-item{display:flex;align-items:center;gap:8px;padding:12px 0;white-space:nowrap}
+.ws-num{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;border:1px solid var(--border2);color:var(--text3);background:var(--bg2);flex-shrink:0}
+.ws-item.active .ws-num{background:var(--violet-bg);border-color:var(--violet-bd);color:var(--violet)}
+.ws-item.done .ws-num{background:var(--green-bg);border-color:var(--green-bd);color:var(--green)}
+.ws-label{font-size:12px;color:var(--text3)}
+.ws-item.active .ws-label{color:var(--text)} .ws-item.done .ws-label{color:var(--text3)}
+.ws-sep{width:32px;height:1px;background:var(--border2);margin:0 6px;flex-shrink:0}
+.content{flex:1;overflow-y:auto;padding:24px;scrollbar-width:thin;scrollbar-color:var(--bg4) transparent}
+.content::-webkit-scrollbar{width:6px} .content::-webkit-scrollbar-track{background:transparent}
+.content::-webkit-scrollbar-thumb{background:var(--bg4);border-radius:3px}
+.page-header{margin-bottom:24px}
+.page-title{font-size:18px;font-weight:700;color:var(--text);margin-bottom:4px}
+.page-sub{font-size:13px;color:var(--text3)}
+.metric-row{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:20px}
+.mc{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r2);padding:16px}
+.mc-label{font-size:11px;color:var(--text3);margin-bottom:6px;display:flex;align-items:center;gap:6px}
+.mc-val{font-size:28px;font-weight:700;letter-spacing:-.02em;font-family:var(--mono);line-height:1}
+.mc-val.cyan{color:var(--cyan);text-shadow:0 0 20px rgba(34,211,238,.4)}
+.mc-val.violet{color:var(--violet);text-shadow:0 0 20px rgba(129,140,248,.4)}
+.mc-val.green{color:var(--green);text-shadow:0 0 20px rgba(52,211,153,.35)}
+.mc-val.amber{color:var(--amber)} .mc-val.red{color:var(--red)} .mc-val.muted{color:var(--text3)}
+.mc-sub{font-size:11px;color:var(--text3);margin-top:4px;font-family:var(--mono)}
+.panel{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r2);padding:18px;margin-bottom:16px}
+.panel-title{font-size:12px;font-weight:600;color:var(--text2);margin-bottom:14px;display:flex;align-items:center;gap:8px;text-transform:uppercase;letter-spacing:.06em}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+.three-col{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px}
+@media(max-width:900px){.two-col,.three-col{grid-template-columns:1fr}}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r2);padding:18px}
+.btn{height:36px;padding:0 14px;border-radius:var(--r);font-size:13px;font-weight:500;cursor:pointer;border:1px solid;display:inline-flex;align-items:center;gap:6px;transition:all .15s;white-space:nowrap;font-family:var(--sans)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn-sm{height:28px;padding:0 10px;font-size:12px} .btn-lg{height:42px;padding:0 20px;font-size:14px}
+.btn-primary{background:var(--violet-bg);border-color:var(--violet-bd);color:var(--violet)} .btn-primary:hover:not(:disabled){background:rgba(129,140,248,.2);border-color:var(--violet)}
+.btn-danger{background:var(--red-bg);border-color:var(--red-bd);color:var(--red)} .btn-danger:hover:not(:disabled){background:rgba(248,113,113,.18)}
+.btn-ghost{background:var(--bg3);border-color:var(--border2);color:var(--text2)} .btn-ghost:hover:not(:disabled){background:var(--bg4);color:var(--text)}
+.btn-cyan{background:var(--cyan-glow);border-color:var(--cyan-bd);color:var(--cyan)} .btn-cyan:hover:not(:disabled){background:rgba(34,211,238,.2)}
+.btn-success{background:var(--green-bg);border-color:var(--green-bd);color:var(--green)}
+.btn-amber{background:var(--amber-bg);border-color:var(--amber-bd);color:var(--amber)}
+.btn-icon{width:32px;height:32px;padding:0;justify-content:center;flex-shrink:0}
+.input{height:36px;padding:0 12px;border-radius:var(--r);border:1px solid var(--border2);background:var(--bg2);color:var(--text);font-size:13px;font-family:var(--sans);outline:none;transition:border-color .15s;width:100%}
+.input:focus{border-color:var(--border3)} .input::placeholder{color:var(--text4)}
+.select{height:36px;padding:0 12px;border-radius:var(--r);border:1px solid var(--border2);background:var(--bg2);color:var(--text);font-size:13px;font-family:var(--sans);outline:none;cursor:pointer;width:100%}
+.select:focus{border-color:var(--border3)}
+.textarea{padding:10px 12px;border-radius:var(--r);border:1px solid var(--border2);background:var(--bg2);color:var(--text);font-size:13px;font-family:var(--mono);outline:none;transition:border-color .15s;width:100%;resize:vertical}
+.textarea:focus{border-color:var(--border3)}
+.form-row{margin-bottom:12px}
+.form-label{font-size:11px;color:var(--text3);margin-bottom:6px;display:block;font-weight:500}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:700px){.form-grid{grid-template-columns:1fr}}
+.form-section{margin-bottom:20px;padding-bottom:20px;border-bottom:1px solid var(--border)}
+.form-section:last-child{border-bottom:none;padding-bottom:0}
+.form-section-title{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--text3);margin-bottom:12px}
+.tbl-wrap{overflow-x:auto;border-radius:var(--r2);border:1px solid var(--border)}
+table{width:100%;border-collapse:collapse}
+thead th{font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text4);padding:8px 12px;text-align:left;border-bottom:1px solid var(--border);white-space:nowrap}
+tbody td{font-size:11px;color:var(--text3);padding:9px 12px;border-bottom:1px solid var(--border);font-family:var(--mono);white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+tbody tr:hover td{background:var(--bg3)}
+.badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:var(--r-pill);font-size:10px;font-weight:600;border:1px solid}
+.badge-green{background:var(--green-bg);border-color:var(--green-bd);color:var(--green)}
+.badge-red{background:var(--red-bg);border-color:var(--red-bd);color:var(--red)}
+.badge-amber{background:var(--amber-bg);border-color:var(--amber-bd);color:var(--amber)}
+.badge-blue{background:var(--violet-bg);border-color:var(--violet-bd);color:var(--violet)}
+.badge-gray{background:var(--bg3);border-color:var(--border2);color:var(--text3)}
+.badge-cyan{background:var(--cyan-glow);border-color:var(--cyan-bd);color:var(--cyan)}
+.prog-track{height:4px;background:var(--bg4);border-radius:var(--r-pill);overflow:hidden}
+.prog-fill{height:100%;border-radius:var(--r-pill);transition:width .3s ease;background:var(--violet)}
+.prog-fill.active{animation:shimmer 1.5s infinite;background:linear-gradient(90deg,var(--violet),var(--cyan),var(--violet));background-size:200%}
+@keyframes shimmer{0%{background-position:0%}100%{background-position:200%}}
+.prog-fill.green{background:var(--green)} .prog-fill.red{background:var(--red)} .prog-fill.cyan{background:var(--cyan)} .prog-fill.amber{background:var(--amber)}
+.prog-label{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;font-size:11px}
+.chart-wrap{position:relative;height:140px;width:100%;background:var(--bg);border-radius:var(--r);border:1px solid var(--border)}
+canvas.chart{width:100%;height:100%}
+.chart-empty-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--text4);font-size:12px;pointer-events:none}
+.log-box{background:var(--bg);border:1px solid var(--border);border-radius:var(--r);padding:12px;max-height:200px;overflow-y:auto;font-family:var(--mono);font-size:11px;color:var(--text3);line-height:1.6;scrollbar-width:thin;scrollbar-color:var(--bg4) transparent}
+.log-box::-webkit-scrollbar{width:4px} .log-box::-webkit-scrollbar-thumb{background:var(--bg4);border-radius:2px}
+.log-line{padding:1px 0} .log-line.err{color:var(--red)} .log-line.ok{color:var(--green)} .log-line.warn{color:var(--amber)}
+.step-list{display:flex;flex-direction:column;gap:8px}
+.step-item{display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg3);border-radius:var(--r);border:1px solid var(--border);transition:border-color .3s}
+.step-item.ok{border-color:var(--green-bd)} .step-item.err{border-color:var(--red-bd)} .step-item.running{border-color:var(--violet-bd)}
+.step-dot{width:8px;height:8px;border-radius:50%;background:var(--text4);flex-shrink:0}
+.step-item.ok .step-dot{background:var(--green);box-shadow:0 0 8px var(--green)}
+.step-item.err .step-dot{background:var(--red);box-shadow:0 0 8px var(--red)}
+.step-item.running .step-dot{background:var(--violet);box-shadow:0 0 8px var(--violet);animation:pulse-dot 1s infinite}
+@keyframes pulse-dot{0%,100%{opacity:1}50%{opacity:.4}}
+.step-label{font-size:13px;flex:1} .step-detail{font-size:11px;color:var(--text3);font-family:var(--mono)}
+.check-list{display:flex;flex-direction:column;gap:6px}
+.check-item{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:var(--r);background:var(--bg3);border:1px solid var(--border)}
+.check-item.pass{border-color:var(--green-bd)} .check-item.fail{border-color:var(--red-bd)}
+.check-cb{width:16px;height:16px;border-radius:4px;border:1px solid var(--border2);background:var(--bg2);cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center}
+.check-cb.checked{background:var(--violet-bg);border-color:var(--violet-bd)}
+.check-icon{width:16px;height:16px;flex-shrink:0;color:var(--text4)}
+.check-item.pass .check-icon{color:var(--green)} .check-item.fail .check-icon{color:var(--red)}
+.check-name{font-size:13px;flex:1} .check-detail{font-size:11px;color:var(--text3);font-family:var(--mono)}
+.banner{display:flex;align-items:flex-start;gap:12px;padding:14px 16px;border-radius:var(--r2);border:1px solid;margin-bottom:16px}
+.banner-warn{background:var(--amber-bg);border-color:var(--amber-bd)} .banner-err{background:var(--red-bg);border-color:var(--red-bd)}
+.banner-info{background:var(--violet-bg);border-color:var(--violet-bd)} .banner-ok{background:var(--green-bg);border-color:var(--green-bd)}
+.banner-icon{flex-shrink:0;margin-top:1px}
+.banner-warn .banner-icon{color:var(--amber)} .banner-err .banner-icon{color:var(--red)}
+.banner-info .banner-icon{color:var(--violet)} .banner-ok .banner-icon{color:var(--green)}
+.banner-text{font-size:13px;line-height:1.5} .banner-title{font-weight:600;margin-bottom:2px} .banner-body{color:var(--text3)}
+.banner-warn .banner-title{color:var(--amber)} .banner-err .banner-title{color:var(--red)}
+.banner-info .banner-title{color:var(--violet)} .banner-ok .banner-title{color:var(--green)}
+.dr-ring{position:relative;width:140px;height:140px;margin:20px auto}
+.dr-ring canvas{position:absolute;inset:0}
+.dr-ring-val{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.dr-score-num{font-size:38px;font-weight:700;font-family:var(--mono);line-height:1}
+.dr-score-label{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.1em}
+.divider{height:1px;background:var(--border);margin:16px 0}
+.kv-row{display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border)}
+.kv-row:last-child{border-bottom:none}
+.kv-key{font-size:12px;color:var(--text3)} .kv-val{font-size:12px;color:var(--text);font-family:var(--mono)}
+.kv-val.cyan{color:var(--cyan)} .kv-val.green{color:var(--green)} .kv-val.red{color:var(--red)} .kv-val.amber{color:var(--amber)}
+.code-block{background:var(--bg);border:1px solid var(--border);border-radius:var(--r);padding:12px;font-family:var(--mono);font-size:11px;color:var(--text3);overflow-x:auto;white-space:pre;position:relative}
+.code-copy-btn{position:absolute;top:8px;right:8px;padding:2px 8px;font-size:10px;height:22px;border-radius:4px;background:var(--bg3);border:1px solid var(--border2);color:var(--text3);cursor:pointer}
+.code-copy-btn:hover{background:var(--bg4);color:var(--text)}
+.hint{font-size:11px;color:var(--text4);margin-top:4px}
+.flex-row{display:flex;align-items:center;gap:8px}
+.flex-row.between{justify-content:space-between} .flex-row.wrap{flex-wrap:wrap}
+.pw-wrap{position:relative} .pw-wrap .input{padding-right:36px}
+.pw-eye{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text3);display:flex;align-items:center}
+.danger-zone{border:1px solid var(--red-bd);border-radius:var(--r2);padding:16px;background:var(--red-bg)}
+.danger-zone-title{font-size:12px;font-weight:600;color:var(--red);margin-bottom:10px;display:flex;align-items:center;gap:6px;text-transform:uppercase;letter-spacing:.06em}
+.empty-state{text-align:center;padding:40px 20px;color:var(--text3);font-size:13px}
+.spinning{animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+/* Integration method cards */
+.int-method-card{background:var(--bg2);border:2px solid var(--border);border-radius:var(--r2);padding:20px;cursor:pointer;transition:border-color .2s;margin-bottom:12px}
+.int-method-card:hover{border-color:var(--border2)}
+.int-method-card.selected{border-color:var(--violet-bd);background:linear-gradient(135deg,var(--violet-bg),transparent)}
+.int-method-header{display:flex;align-items:center;gap:12px;margin-bottom:8px}
+.int-method-title{font-size:14px;font-weight:600;color:var(--text);flex:1}
+.int-method-desc{font-size:13px;color:var(--text3);margin-bottom:12px;line-height:1.6}
+.int-how{background:var(--bg3);border-radius:var(--r);padding:10px 14px;font-size:12px;color:var(--text3);font-family:var(--mono);margin-bottom:12px;border:1px solid var(--border)}
+.int-config{display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)}
+.int-method-card.selected .int-config{display:block}
+/* Toast notifications */
+#toastContainer{position:fixed;bottom:24px;right:24px;z-index:9999;display:flex;flex-direction:column;gap:8px}
+.toast{background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r2);padding:12px 16px;font-size:13px;color:var(--text);display:flex;align-items:center;gap:10px;min-width:260px;max-width:360px;animation:slideIn .3s ease;box-shadow:0 8px 32px rgba(0,0,0,.4)}
+.toast.ok{border-color:var(--green-bd)} .toast.err{border-color:var(--red-bd)} .toast.warn{border-color:var(--amber-bd)} .toast.info{border-color:var(--violet-bd)}
+@keyframes slideIn{from{transform:translateX(120%);opacity:0}to{transform:translateX(0);opacity:1}}
+/* Checkbox */
+.cb-wrap{display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer}
+.cb-wrap input[type=checkbox]{width:14px;height:14px;accent-color:var(--violet);cursor:pointer}
+.cb-label{font-size:13px;color:var(--text2)}
+</style>
+</head>
+<body>
+<!-- WELCOME SCREEN -->
+<div id="welcome-screen">
+  <canvas id="welcomeCanvas"></canvas>
+  <div class="wc-center">
+    <div class="wc-tag">Disaster Recovery Platform</div>
+    <div class="wc-title">Moodle DR</div>
+    <div class="wc-sub">Replicate. Monitor. Recover.</div>
+    <div class="wc-desc">Production-grade sync and failover for Moodle LMS — file replication and MySQL GTID replication with real-time DR readiness monitoring.</div>
+    <div class="wc-cards">
+      <div class="wc-card">
+        <div class="wc-card-icon cyan"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#22d3ee" stroke-width="1.8"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg></div>
+        <h3>File Sync</h3>
+        <p>rsync + lsyncd for /moodledata/ filesystem replication to Azure VM</p>
+        <div class="wc-card-tags"><span class="wc-tag-pill">rsync</span><span class="wc-tag-pill">lsyncd</span><span class="wc-tag-pill">inotify</span></div>
+        <button class="wc-btn violet" onclick="startSetup('file_only')">Start File Sync Setup</button>
+      </div>
+      <div class="wc-card">
+        <div class="wc-card-icon violet"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="1.8"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></div>
+        <h3>Database Sync</h3>
+        <p>MySQL 8.x GTID async replication with Percona Toolkit monitoring</p>
+        <div class="wc-card-tags"><span class="wc-tag-pill">MySQL GTID</span><span class="wc-tag-pill">pt-heartbeat</span><span class="wc-tag-pill">XtraBackup</span></div>
+        <button class="wc-btn violet" onclick="startSetup('db_only')">Start DB Sync Setup</button>
+      </div>
+      <div class="wc-card featured">
+        <div class="wc-card-icon grad"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#22d3ee" stroke-width="1.8"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></div>
+        <h3>Full DR Setup</h3>
+        <p>Complete disaster recovery — file sync + database replication + unified DR readiness dashboard</p>
+        <div class="wc-card-tags"><span class="wc-tag-pill" style="background:var(--cyan-glow);border-color:var(--cyan-bd);color:var(--cyan)">Recommended</span></div>
+        <button class="wc-btn cyan" onclick="startSetup('both')">Start Full Setup</button>
+      </div>
+    </div>
+    <div class="wc-skip">Already configured? <a onclick="skipToApp()">Open Dashboard &rarr;</a></div>
+  </div>
+</div>
+<!-- MAIN APP SHELL -->
+<div class="shell" id="appShell" style="display:none">
+  <aside class="sidebar" id="sidebar">
+    <div class="sb-header">
+      <div class="sb-logo-mark"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></div>
+      <div class="sb-logo-text">Moodle DR v11</div>
+      <button class="sb-collapse-btn" onclick="toggleSidebar()"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+    </div>
+    <div class="sb-nav" id="sbNav"></div>
+  </aside>
+  <div class="main">
+    <header class="topbar">
+      <div class="topbar-breadcrumb">
+        <span class="bc-root">Moodle DR</span><span class="bc-sep">/</span><span class="bc-page" id="bcPage">Dashboard</span>
+      </div>
+      <div class="topbar-pills">
+        <div class="status-pill unknown" id="sshPill"><div class="status-dot unknown"></div>SSH</div>
+        <div class="status-pill unknown" id="dbPill"><div class="status-dot unknown"></div>DB</div>
+      </div>
+      <div class="topbar-clock" id="topClock"></div>
+      <div class="topbar-date" id="topDate"></div>
+    </header>
+    <div class="wiz-steps" id="wizSteps" style="display:none"></div>
+    <main class="content" id="content"></main>
+  </div>
+</div>
+<div id="toastContainer"></div>
+<script>
+'use strict';
+// ── GLOBAL STATE ──────────────────────────────────────────────────────────────
+let appState = {
+  setupMode: '',
+  welcomeSeen: false,
+  fileSetupComplete: false,
+  dbSetupComplete: false,
+  currentPage: 'dashboard',
+  sidebarCollapsed: false,
+};
+let pollTimers = {};
+let chartInstances = {};
+
+// ── ICONS ─────────────────────────────────────────────────────────────────────
+const ICONS = {
+  database:`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>`,
+  server:`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>`,
+  activity:`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>`,
+  shield:`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`,
+  settings:`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93l-1.41 1.41M4.93 4.93l1.41 1.41M4.93 19.07l1.41-1.41M19.07 19.07l-1.41-1.41M12 2v2M12 20v2M2 12h2M20 12h2"/></svg>`,
+  play:`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polygon points="5 3 19 12 5 21 5 3"/></svg>`,
+  stop:`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>`,
+  check:`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="20 6 9 17 4 12"/></svg>`,
+  alert:`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+  refresh:`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>`,
+  arrow:`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>`,
+  zap:`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
+  clock:`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
+  git:`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 01-9 9"/></svg>`,
+  layers:`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>`,
+  bar:`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>`,
+  home:`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>`,
+  x:`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+  copy:`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>`,
+  eye:`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`,
+  cpu:`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg>`,
+  globe:`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>`,
+  link:`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>`,
+  bell:`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>`,
+  key:`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>`,
+  trash:`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>`,
+  wifi:`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12.55a11 11 0 0114.08 0"/><path d="M1.42 9a16 16 0 0121.16 0"/><path d="M8.53 16.11a6 6 0 016.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>`,
+  terminal:`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>`,
+  send:`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>`,
+  plus:`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
+  download:`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`,
+  toggle:`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="1" y="5" width="22" height="14" rx="7"/><circle cx="8" cy="12" r="3"/></svg>`,
+};
+
+// ── UTILITY HELPERS ───────────────────────────────────────────────────────────
+function escHtml(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function timeAgo(ts) {
+  if (!ts) return '—';
+  let d;
+  try { d = typeof ts === 'number' ? new Date(ts*1000) : new Date(ts); } catch(e) { return ts; }
+  const diff = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (diff < 5) return 'just now';
+  if (diff < 60) return diff + 's ago';
+  if (diff < 3600) return Math.floor(diff/60) + 'm ago';
+  if (diff < 86400) return Math.floor(diff/3600) + 'h ago';
+  return Math.floor(diff/86400) + 'd ago';
+}
+
+function showToast(msg, type='ok') {
+  const c = document.getElementById('toastContainer');
+  if (!c) return;
+  const t = document.createElement('div');
+  const color = type==='ok'?'var(--green)':type==='err'?'var(--red)':type==='warn'?'var(--amber)':'var(--violet)';
+  t.style.cssText = `background:var(--bg3);border:1px solid ${color};border-radius:var(--r);padding:10px 16px;font-size:13px;color:var(--text);display:flex;align-items:center;gap:8px;min-width:200px;max-width:400px;box-shadow:0 4px 24px rgba(0,0,0,.5);animation:slideIn .2s ease`;
+  t.innerHTML = `<span style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0"></span>${escHtml(msg)}`;
+  c.appendChild(t);
+  setTimeout(() => { t.style.opacity='0'; t.style.transition='opacity .3s'; setTimeout(()=>t.remove(),300); }, 3500);
+}
+
+// Inject toast animation
+(function(){
+  const st = document.createElement('style');
+  st.textContent = `@keyframes slideIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}#toastContainer{position:fixed;bottom:20px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:8px}`;
+  document.head.appendChild(st);
+})();
+
+// ── API HELPERS ───────────────────────────────────────────────────────────────
+async function api(method, path, body) {
+  try {
+    const opts = {method, headers:{'Content-Type':'application/json'}};
+    if (body) opts.body = JSON.stringify(body);
+    const r = await fetch(path, opts);
+    if (!r.ok) {
+      const txt = await r.text();
+      return {ok:false, error:`HTTP ${r.status}: ${txt}`};
+    }
+    return await r.json();
+  } catch(e) {
+    return {ok:false, error:e.message};
+  }
+}
+const apiGet = (path) => api('GET', path);
+const apiPost = (path, body) => api('POST', path, body);
+
+// ── CHART HELPERS ─────────────────────────────────────────────────────────────
+function drawLineChart(canvas, data, color='#22d3ee') {
+  const ctx = canvas.getContext('2d');
+  const W = canvas.offsetWidth || canvas.width;
+  const H = canvas.offsetHeight || canvas.height;
+  canvas.width = W; canvas.height = H;
+  ctx.clearRect(0,0,W,H);
+  // Remove any existing empty overlay
+  const wrap = canvas.parentElement;
+  const existingOverlay = wrap && wrap.querySelector('.chart-empty-overlay');
+  if (existingOverlay) existingOverlay.remove();
+  if (!data || data.length < 2) {
+    // Show a subtle "awaiting data" placeholder
+    if (wrap) {
+      const overlay = document.createElement('div');
+      overlay.className = 'chart-empty-overlay';
+      overlay.textContent = 'Awaiting data — chart will populate once replication begins';
+      wrap.appendChild(overlay);
+    }
+    return;
+  }
+  const pad = {l:4,r:4,t:8,b:8};
+  const vals = data.map(d => d===null?0:+d||0);
+  const maxV = Math.max(...vals, 1);
+  const minV = Math.min(...vals, 0);
+  const toX = i => pad.l + (i/(vals.length-1)) * (W-pad.l-pad.r);
+  const toY = v => pad.t + (1-(v-minV)/(maxV-minV+0.001)) * (H-pad.t-pad.b);
+  ctx.strokeStyle = 'rgba(255,255,255,.04)'; ctx.lineWidth=1;
+  for(let i=0;i<4;i++){const y=pad.t+(i/3)*(H-pad.t-pad.b);ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(W-pad.r,y);ctx.stroke();}
+  ctx.beginPath(); ctx.moveTo(toX(0),H);
+  vals.forEach((v,i)=>ctx.lineTo(toX(i),toY(v)));
+  ctx.lineTo(toX(vals.length-1),H); ctx.closePath();
+  try{ctx.fillStyle=color+'14';ctx.fill();}catch(e){}
+  ctx.shadowBlur=12; ctx.shadowColor='rgba(34,211,238,0.5)';
+  ctx.strokeStyle=color; ctx.lineWidth=2; ctx.lineJoin='round';
+  ctx.beginPath(); vals.forEach((v,i)=>{if(i===0)ctx.moveTo(toX(i),toY(v));else ctx.lineTo(toX(i),toY(v));});
+  ctx.stroke(); ctx.shadowBlur=0;
+}
+
+function drawRing(canvas, pct, color) {
+  const ctx = canvas.getContext('2d');
+  const W = canvas.offsetWidth||140, H = canvas.offsetHeight||140;
+  canvas.width=W; canvas.height=H;
+  const cx=W/2, cy=H/2, r=Math.min(W,H)/2-10;
+  ctx.clearRect(0,0,W,H);
+  ctx.strokeStyle='rgba(255,255,255,.06)'; ctx.lineWidth=10;
+  ctx.beginPath(); ctx.arc(cx,cy,r,0,2*Math.PI); ctx.stroke();
+  ctx.shadowBlur=16; ctx.shadowColor=color; ctx.strokeStyle=color;
+  ctx.lineWidth=10; ctx.lineCap='round';
+  ctx.beginPath(); ctx.arc(cx,cy,r,-Math.PI/2,-Math.PI/2+(pct/100)*2*Math.PI); ctx.stroke();
+  ctx.shadowBlur=0;
+}
+
+// ── STATUS PILLS ──────────────────────────────────────────────────────────────
+function updateStatusPills(ssh, db) {
+  const sshEl=document.getElementById('sshPill');
+  const dbEl=document.getElementById('dbPill');
+  if(!sshEl||!dbEl) return;
+  function setP(el,ok,label){
+    const cls=ok===true?'healthy':ok===false?'error':'unknown';
+    el.className=`status-pill ${cls}`;
+    el.innerHTML=`<div class="status-dot ${cls}"></div>${label}`;
+  }
+  setP(sshEl,ssh,'SSH'); setP(dbEl,db,'DB');
+}
+
+// ── CLOCK ─────────────────────────────────────────────────────────────────────
+function startClock() {
+  function tick() {
+    const now=new Date();
+    const t=now.toLocaleTimeString('en-US',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    const d=now.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+    const ce=document.getElementById('topClock'); if(ce) ce.textContent=t;
+    const de=document.getElementById('topDate'); if(de) de.textContent=d;
+  }
+  tick(); setInterval(tick,1000);
+}
+
+// ── WELCOME CANVAS ────────────────────────────────────────────────────────────
+function initWelcomeCanvas() {
+  const canvas=document.getElementById('welcomeCanvas'); if(!canvas) return;
+  const ctx=canvas.getContext('2d');
+  let W,H,nodes=[];
+  const COLORS=['#22d3ee','#22d3ee','#22d3ee','#22d3ee','#22d3ee','#818cf8','#818cf8','#34d399'];
+  function resize(){ W=canvas.width=window.innerWidth; H=canvas.height=window.innerHeight; }
+  function initNodes(){
+    nodes=Array.from({length:35},(_,i)=>({
+      x:Math.random()*W, y:Math.random()*H,
+      vx:(Math.random()-.5)*.35, vy:(Math.random()-.5)*.35,
+      r:Math.random()*2.5+1.5,
+      color:COLORS[Math.floor(Math.random()*COLORS.length)],
+      pulse:i<4, phase:Math.random()*Math.PI*2,
+    }));
+  }
+  function draw(t) {
+    ctx.clearRect(0,0,W,H);
+    for(let i=0;i<nodes.length;i++) for(let j=i+1;j<nodes.length;j++){
+      const dx=nodes[i].x-nodes[j].x, dy=nodes[i].y-nodes[j].y;
+      const dist=Math.sqrt(dx*dx+dy*dy);
+      if(dist<180){ctx.strokeStyle=`rgba(34,211,238,${.15*(1-dist/180)})`;ctx.lineWidth=.8;ctx.beginPath();ctx.moveTo(nodes[i].x,nodes[i].y);ctx.lineTo(nodes[j].x,nodes[j].y);ctx.stroke();}
+    }
+    nodes.forEach(n=>{
+      n.x+=n.vx; n.y+=n.vy;
+      if(n.x<0||n.x>W) n.vx*=-1; if(n.y<0||n.y>H) n.vy*=-1;
+      n.x=Math.max(0,Math.min(W,n.x)); n.y=Math.max(0,Math.min(H,n.y));
+      let scale=1; if(n.pulse) scale=1+.4*Math.abs(Math.sin(t*.001+n.phase));
+      ctx.save(); ctx.translate(n.x,n.y); ctx.scale(scale,scale);
+      ctx.shadowBlur=15; ctx.shadowColor=n.color; ctx.fillStyle=n.color;
+      ctx.beginPath(); ctx.arc(0,0,n.r,0,Math.PI*2); ctx.fill();
+      ctx.shadowBlur=0; ctx.restore();
+    });
+    requestAnimationFrame(draw);
+  }
+  resize(); initNodes(); window.addEventListener('resize',()=>{resize();initNodes();});
+  requestAnimationFrame(draw);
+}
+
+// ── NAV ───────────────────────────────────────────────────────────────────────
+function buildNav() {
+  const mode=appState.setupMode;
+  const fileComplete=appState.fileSetupComplete;
+  const dbComplete=appState.dbSetupComplete;
+  const isSetupComplete=fileComplete||dbComplete;
+  const needsDB=mode==='db_only'||mode==='both'||mode==='';
+  const showFile=fileComplete||mode==='file_only'||mode==='both';
+  const showDB=dbComplete||mode==='db_only'||mode==='both';
+  const showBoth=(mode==='both')&&fileComplete&&dbComplete;
+  const groups=[];
+  if(!isSetupComplete){
+    groups.push({group:'Setup',items:[
+      {key:'welcome',label:'Welcome',icon:'home'},
+      {key:'srv_details',label:'Server Details',icon:'server'},
+      {key:'prereqs',label:'Prerequisites',icon:'shield'},
+      {key:'configure',label:'Auto-Configure',icon:'settings'},
+      {key:'bulk_sync',label:'Bulk Sync',icon:'layers'},
+      ...(needsDB?[{key:'start_repl',label:'Start Replication',icon:'git'}]:[]),
+      {key:'verify',label:'Verify',icon:'check'},
+    ]});
+  }
+  if(showFile){
+    groups.push({group:'File Sync',items:[
+      {key:'dashboard',label:'Dashboard',icon:'activity'},
+      {key:'transfers',label:'Transfers',icon:'bar'},
+      {key:'connectivity',label:'Connectivity',icon:'zap'},
+      {key:'failover',label:'Failover',icon:'alert'},
+      {key:'file_settings',label:'Settings',icon:'settings'},
+    ]});
+  }
+  if(showDB){
+    groups.push({group:'Database Sync',items:[
+      {key:'db_replication',label:'DB Replication',icon:'database'},
+      {key:'db_integrity',label:'DB Integrity',icon:'shield'},
+      {key:'db_failover',label:'DB Failover',icon:'alert'},
+      {key:'db_settings',label:'Settings',icon:'settings'},
+    ]});
+  }
+  if(showBoth){
+    groups.push({group:'Migration',items:[
+      {key:'initial_migration',label:'Initial Migration',icon:'layers'},
+      {key:'live_sync',label:'Live Sync Status',icon:'activity'},
+      {key:'dr_readiness',label:'DR Readiness',icon:'shield'},
+    ]});
+  } else if((showFile||showDB)&&!showBoth){
+    groups.push({group:'DR',items:[{key:'dr_readiness',label:'DR Readiness',icon:'shield'}]});
+  }
+  if(isSetupComplete){
+    groups.push({group:'Integrations',items:[
+      {key:'ext_access',label:'External Access',icon:'globe'},
+      {key:'notifications',label:'Notifications',icon:'bell'},
+      {key:'openclaw',label:'OpenClaw API',icon:'cpu'},
+    ]});
+  }
+  return groups;
+}
+
+function renderNav() {
+  const nav=buildNav();
+  const el=document.getElementById('sbNav');
+  if(!el) return;
+  el.innerHTML=nav.map(g=>`
+    <div class="sb-group-label">${g.group}</div>
+    ${g.items.map(item=>`
+      <div class="sb-item ${appState.currentPage===item.key?'active':''}" onclick="showPage('${item.key}')">
+        <span class="sb-item-icon">${ICONS[item.icon]||ICONS.activity}</span>
+        <span class="sb-item-label">${item.label}</span>
+        <div class="sb-tooltip">${item.label}</div>
+      </div>
+    `).join('')}
+  `).join('');
+}
+
+// ── WIZARD STEPS ──────────────────────────────────────────────────────────────
+const WIZARD_PAGES=['welcome','srv_details','prereqs','configure','bulk_sync','start_repl','verify'];
+const WIZARD_LABELS=['Welcome','Server Details','Prerequisites','Configure','Bulk Sync','Start Replication','Verify'];
+
+function renderWizSteps(currentKey) {
+  const needsDB=appState.setupMode==='db_only'||appState.setupMode==='both'||appState.setupMode==='';
+  const steps=WIZARD_PAGES.filter(p=>needsDB||p!=='start_repl');
+  const labels=steps.map(p=>WIZARD_LABELS[WIZARD_PAGES.indexOf(p)]);
+  const curIdx=steps.indexOf(currentKey);
+  const el=document.getElementById('wizSteps'); if(!el) return;
+  el.innerHTML=steps.map((p,i)=>`
+    ${i>0?'<div class="ws-sep"></div>':''}
+    <div class="ws-item ${i<curIdx?'done':i===curIdx?'active':''}">
+      <div class="ws-num">${i<curIdx?ICONS.check.replace('16','12'):i+1}</div>
+      <div class="ws-label">${labels[i]}</div>
+    </div>
+  `).join('');
+  el.style.display='flex';
+}
+
+// ── PAGE NAVIGATION ───────────────────────────────────────────────────────────
+function showPage(key) {
+  Object.keys(pollTimers).forEach(k=>{clearInterval(pollTimers[k]);delete pollTimers[k];});
+  appState.currentPage=key;
+  const bcEl=document.getElementById('bcPage');
+  if(bcEl) bcEl.textContent={
+    welcome:'Welcome',srv_details:'Server Details',prereqs:'Prerequisites',
+    configure:'Auto-Configure',bulk_sync:'Bulk Sync',start_repl:'Start Replication',
+    verify:'Verify',dashboard:'Dashboard',transfers:'Transfers',connectivity:'Connectivity',
+    failover:'File Failover',file_settings:'File Settings',db_replication:'DB Replication',
+    db_integrity:'DB Integrity',db_failover:'DB Failover',db_settings:'DB Settings',
+    initial_migration:'Initial Migration',live_sync:'Live Sync',dr_readiness:'DR Readiness',
+    ext_access:'External Access',notifications:'Notifications',openclaw:'OpenClaw API',
+  }[key]||key;
+  const isWiz=WIZARD_PAGES.includes(key);
+  const wizEl=document.getElementById('wizSteps');
+  if(isWiz) renderWizSteps(key); else if(wizEl) wizEl.style.display='none';
+  renderNav();
+  renderPage(key);
+}
+
+function renderPage(key) {
+  const c=document.getElementById('content');
+  switch(key){
+    case 'welcome': c.innerHTML=pagePWelcome(); break;
+    case 'srv_details': c.innerHTML=pageSrvDetails(); initSrvDetails(); break;
+    case 'prereqs': c.innerHTML=pagePrereqs(); initPrereqs(); break;
+    case 'configure': c.innerHTML=pageConfigure(); break;
+    case 'bulk_sync': c.innerHTML=pageBulkSync(); initBulkSync(); break;
+    case 'start_repl': c.innerHTML=pageStartRepl(); break;
+    case 'verify': c.innerHTML=pageVerify(); break;
+    case 'dashboard': c.innerHTML=pageDashboard(); initDashboard(); break;
+    case 'transfers': c.innerHTML=pageTransfers(); initTransfers(); break;
+    case 'connectivity': c.innerHTML=pageConnectivity(); initConnectivity(); break;
+    case 'failover': c.innerHTML=pageFailover(); break;
+    case 'file_settings': c.innerHTML=pageFileSettings(); initFileSettings(); break;
+    case 'db_replication': c.innerHTML=pageDbReplication(); initDbReplication(); break;
+    case 'db_integrity': c.innerHTML=pageDbIntegrity(); break;
+    case 'db_failover': c.innerHTML=pageDbFailover(); initDbFailover(); break;
+    case 'db_settings': c.innerHTML=pageDbSettings(); initDbSettings(); break;
+    case 'initial_migration': c.innerHTML=pageInitialMigration(); initInitialMigration(); break;
+    case 'live_sync': c.innerHTML=pageLiveSync(); initLiveSync(); break;
+    case 'dr_readiness': c.innerHTML=pageDrReadiness(); initDrReadiness(); break;
+    case 'ext_access': c.innerHTML=pageExtAccess(); initExtAccess(); break;
+    case 'notifications': c.innerHTML=pageNotifications(); initNotifications(); break;
+    case 'openclaw': c.innerHTML=pageOpenClaw(); initOpenClaw(); break;
+    default: c.innerHTML=`<div class="empty-state">Page not found: ${escHtml(key)}</div>`;
+  }
+}
+
+// ── TOPBAR POLLING ────────────────────────────────────────────────────────────
+async function pollTopbar() {
+  try {
+    const s=await apiGet('/api/public/status');
+    const sshOk=s.file_sync?.lsyncd_running!==false;
+    const dbSt=s.db_sync?.status;
+    const dbOk=dbSt==='healthy'?true:(dbSt==='error'||dbSt==='stopped')?false:null;
+    updateStatusPills(sshOk,dbOk);
+  } catch(e){}
+}
+function startTopbarPolling(){ pollTopbar(); setInterval(pollTopbar,30000); }
+
+function toggleSidebar(){
+  appState.sidebarCollapsed=!appState.sidebarCollapsed;
+  document.getElementById('sidebar').classList.toggle('collapsed',appState.sidebarCollapsed);
+}
+
+// ── WELCOME SCREEN ────────────────────────────────────────────────────────────
+async function startSetup(mode) {
+  await apiPost('/api/setup/mode',{setup_mode:mode,welcome_seen:true});
+  appState.setupMode=mode; appState.welcomeSeen=true;
+  transitionToApp('welcome');
+}
+async function skipToApp() {
+  await apiPost('/api/setup/mode',{welcome_seen:true});
+  appState.welcomeSeen=true;
+  transitionToApp((appState.fileSetupComplete||appState.dbSetupComplete)?'dashboard':'welcome');
+}
+function transitionToApp(firstPage) {
+  const ws=document.getElementById('welcome-screen');
+  ws.classList.add('fade-out');
+  setTimeout(()=>{
+    ws.style.display='none';
+    document.getElementById('appShell').style.display='flex';
+    showPage(firstPage); startClock(); startTopbarPolling();
+  },600);
+}
+
+// ── TOGGLE PASSWORD ───────────────────────────────────────────────────────────
+function togglePw(id){ const el=document.getElementById(id); if(el) el.type=el.type==='password'?'text':'password'; }
+
+// ═══════════════════════════════════════════════════════════════
+// ── WIZARD PAGES ──
+// ═══════════════════════════════════════════════════════════════
+function pagePWelcome() {
+  const mode=appState.setupMode;
+  const modeLabel={file_only:'File Sync',db_only:'Database Sync',both:'Full DR (File + DB)'}[mode]||'Full DR';
+  return `
+    <div class="page-header"><div class="page-title">Welcome to Moodle DR Setup</div>
+    <div class="page-sub">You selected: <strong style="color:var(--violet)">${modeLabel}</strong></div></div>
+    <div class="banner banner-info"><div class="banner-icon">${ICONS.zap}</div>
+    <div class="banner-text"><div class="banner-title">Setup Mode: ${modeLabel}</div>
+    <div class="banner-body">Follow the wizard steps to configure your Moodle disaster recovery environment.</div></div></div>
+    <div class="panel"><div class="panel-title">${ICONS.layers} What will be configured</div>
+    ${mode!=='db_only'?`<div class="check-list" style="margin-bottom:12px">
+      <div class="check-item"><div class="check-icon">${ICONS.check}</div><div class="check-name">File Sync (rsync + lsyncd) to Azure VM</div></div>
+      <div class="check-item"><div class="check-icon">${ICONS.check}</div><div class="check-name">SSH key authentication setup</div></div>
+      <div class="check-item"><div class="check-icon">${ICONS.check}</div><div class="check-name">lsyncd service configuration and enable</div></div>
+      <div class="check-item"><div class="check-icon">${ICONS.check}</div><div class="check-name">Initial bulk rsync of /moodledata/</div></div>
+    </div>`:''}
+    ${mode!=='file_only'?`<div class="check-list">
+      <div class="check-item"><div class="check-icon">${ICONS.check}</div><div class="check-name">MySQL GTID async replication</div></div>
+      <div class="check-item"><div class="check-icon">${ICONS.check}</div><div class="check-name">SSL certificate generation and deployment</div></div>
+      <div class="check-item"><div class="check-icon">${ICONS.check}</div><div class="check-name">Replication user creation</div></div>
+      <div class="check-item"><div class="check-icon">${ICONS.check}</div><div class="check-name">pt-heartbeat monitoring</div></div>
+    </div>`:''}
+    </div>
+    <div class="flex-row" style="justify-content:flex-end">
+      <button class="btn btn-primary btn-lg" onclick="showPage('srv_details')">Next: Server Details ${ICONS.arrow}</button>
+    </div>`;
+}
+
+function pageSrvDetails() {
+  const mode=appState.setupMode;
+  const showFile=mode!=='db_only', showDB=mode!=='file_only';
+  return `
+    <div class="page-header"><div class="page-title">Server Details</div><div class="page-sub">Configure connection details for your servers</div></div>
+    <div class="panel">
+    ${showFile?`<div class="form-section"><div class="form-section-title">File Sync Configuration</div>
+      <div class="form-grid">
+        <div class="form-row"><label class="form-label">Target VM IP Address</label><input id="f-ip" class="input" placeholder="20.86.145.98"/></div>
+        <div class="form-row"><label class="form-label">Sync User</label><input id="f-user" class="input" value="moodlesync"/></div>
+        <div class="form-row"><label class="form-label">SSH Key Path</label><input id="f-key" class="input" value="/root/.ssh/moodle_rsync_ed25519"/></div>
+        <div class="form-row"><label class="form-label">Source Path</label><input id="f-src" class="input" value="/var/www/Azure-MoodleData/"/></div>
+        <div class="form-row"><label class="form-label">Target Path</label><input id="f-tgt" class="input" value="/moodledata/"/></div>
+      </div></div>`:''}
+    ${showDB?`<div class="form-section"><div class="form-section-title">Database Replication Configuration</div>
+      <div class="form-grid">
+        <div class="form-row"><label class="form-label">Source MySQL Host</label><input id="d-shost" class="input" value="127.0.0.1"/></div>
+        <div class="form-row"><label class="form-label">Source Port</label><input id="d-sport" class="input" type="number" value="3306"/></div>
+        <div class="form-row"><label class="form-label">Replica MySQL Host</label><input id="d-rhost" class="input" placeholder="replica-server-ip"/></div>
+        <div class="form-row"><label class="form-label">Replica Port</label><input id="d-rport" class="input" type="number" value="3306"/></div>
+        <div class="form-row"><label class="form-label">Replication User</label><input id="d-ruser" class="input" value="repl_user"/></div>
+        <div class="form-row"><label class="form-label">Replication Password</label><div class="pw-wrap"><input id="d-rpass" class="input" type="password" placeholder="strong-password"/><button class="pw-eye" onclick="togglePw('d-rpass')">${ICONS.eye}</button></div></div>
+        <div class="form-row"><label class="form-label">Source DB User</label><input id="d-sdbuser" class="input" value="root"/></div>
+        <div class="form-row"><label class="form-label">Source DB Password</label><div class="pw-wrap"><input id="d-sdbpass" class="input" type="password"/><button class="pw-eye" onclick="togglePw('d-sdbpass')">${ICONS.eye}</button></div></div>
+        <div class="form-row"><label class="form-label">Replica DB User</label><input id="d-rdbuser" class="input" value="root"/></div>
+        <div class="form-row"><label class="form-label">Replica DB Password</label><div class="pw-wrap"><input id="d-rdbpass" class="input" type="password"/><button class="pw-eye" onclick="togglePw('d-rdbpass')">${ICONS.eye}</button></div></div>
+        <div class="form-row"><label class="form-label">Moodle DB Name</label><input id="d-dbname" class="input" value="moodle"/></div>
+        <div class="form-row"><label class="form-label">Seed Method</label>
+          <select id="d-seed" class="select"><option value="mysqldump">mysqldump (recommended)</option><option value="xtrabackup">XtraBackup</option></select>
+        </div>
+      </div></div>`:''}
+      <div class="flex-row between" style="margin-top:8px">
+        <button class="btn btn-ghost" onclick="showPage('welcome')">&larr; Back</button>
+        <button class="btn btn-primary" onclick="saveSrvDetails()">Save &amp; Continue ${ICONS.arrow}</button>
+      </div>
+    </div>`;
+}
+
+function initSrvDetails() {
+  apiGet('/api/setup/config').then(r=>{
+    if(!r.file) return;
+    const f=r.file, d=r.db||{};
+    const set=(id,val)=>{const el=document.getElementById(id);if(el&&val)el.value=val;};
+    set('f-ip',f.target_ip);set('f-user',f.sync_user);set('f-key',f.ssh_key_path);
+    set('f-src',f.src_path);set('f-tgt',f.target_path);
+    set('d-shost',d.source_host);set('d-sport',d.source_port);
+    set('d-rhost',d.replica_host);set('d-rport',d.replica_port);
+    set('d-ruser',d.repl_user);set('d-sdbuser',d.source_db_user);
+    set('d-rdbuser',d.replica_db_user);set('d-dbname',d.moodle_db_name);
+    if(d.seed_method){const el=document.getElementById('d-seed');if(el)el.value=d.seed_method;}
+  });
+}
+
+async function saveSrvDetails() {
+  const g=id=>{const el=document.getElementById(id);return el?el.value:'';};
+  const body={};const mode=appState.setupMode;
+  if(mode!=='db_only'){body.target_ip=g('f-ip');body.sync_user=g('f-user');body.ssh_key_path=g('f-key');body.src_path=g('f-src');body.target_path=g('f-tgt');}
+  if(mode!=='file_only'){
+    body.source_host=g('d-shost');body.source_port=parseInt(g('d-sport'))||3306;
+    body.replica_host=g('d-rhost');body.replica_port=parseInt(g('d-rport'))||3306;
+    body.repl_user=g('d-ruser');body.repl_password=g('d-rpass');
+    body.source_db_user=g('d-sdbuser');body.source_db_password=g('d-sdbpass');
+    body.replica_db_user=g('d-rdbuser');body.replica_db_password=g('d-rdbpass');
+    body.moodle_db_name=g('d-dbname');body.seed_method=g('d-seed');
+  }
+  showToast('Saving configuration...','info');
+  const r=await apiPost('/api/setup/config',body);
+  if(r.ok){showToast('Configuration saved','ok');showPage('prereqs');}
+  else showToast('Save failed: '+r.error,'err');
+}
+
+function pagePrereqs() {
+  return `
+    <div class="page-header"><div class="page-title">Prerequisites</div><div class="page-sub">Checking required packages and system configuration</div></div>
+    <div class="panel">
+      <div class="flex-row between" style="margin-bottom:16px">
+        <div class="panel-title">${ICONS.shield} System Checks</div>
+        <button class="btn btn-ghost btn-sm" id="runChecksBtn" onclick="runPrereqChecks()">${ICONS.refresh} Run Checks</button>
+      </div>
+      <div id="prereqList"><div class="empty-state">Click "Run Checks" to begin</div></div>
+    </div>
+    <div class="flex-row between">
+      <button class="btn btn-ghost" onclick="showPage('srv_details')">&larr; Back</button>
+      <button class="btn btn-primary" id="prereqNext" disabled onclick="showPage('configure')">Next: Configure ${ICONS.arrow}</button>
+    </div>`;
+}
+function initPrereqs(){ runPrereqChecks(); }
+async function runPrereqChecks() {
+  const btn=document.getElementById('runChecksBtn');
+  if(btn) btn.innerHTML=`<span class="spinning">${ICONS.refresh}</span> Checking...`;
+  const r=await apiGet('/api/setup/prereqs');
+  const el=document.getElementById('prereqList');
+  if(!el) return;
+  if(!r.checks){el.innerHTML=`<div class="empty-state">Failed: ${r.error||'unknown'}</div>`;return;}
+  el.innerHTML=`<div class="check-list">${r.checks.map(c=>`
+    <div class="check-item ${c.pass?'pass':'fail'}">
+      <div class="check-icon">${c.pass?ICONS.check:ICONS.x}</div>
+      <div class="check-name">${escHtml(c.name)} ${!c.critical?'<span style="color:var(--text4);font-size:10px">(optional)</span>':''}</div>
+      <div class="check-detail">${escHtml(c.detail||'')}</div>
+      ${!c.pass&&c.install_hint?`<button class="btn btn-ghost btn-sm" onclick="installPkg('${c.id}')">Install</button>`:''}
+    </div>`).join('')}</div>`;
+  if(btn) btn.innerHTML=`${ICONS.refresh} Run Checks`;
+  const nxt=document.getElementById('prereqNext');
+  if(nxt) nxt.disabled=!r.all_critical_ok;
+}
+async function installPkg(id) {
+  showToast(`Installing ${id}...`,'info');
+  const r=await apiPost('/api/setup/prereqs/install',{ids:[id]});
+  if(r.results?.[0]?.ok){showToast(`${id} installed`,'ok');runPrereqChecks();}
+  else showToast(`Install failed: ${r.results?.[0]?.output||'unknown'}`,'err');
+}
+
+function pageConfigure() {
+  const mode=appState.setupMode;
+  return `
+    <div class="page-header"><div class="page-title">Auto-Configure</div><div class="page-sub">Automatically configure servers for DR replication</div></div>
+    <div class="panel"><div class="panel-title">${ICONS.settings} Configuration Steps</div>
+    <div class="step-list" id="configSteps">
+      ${mode!=='db_only'?`
+        <div class="step-item" id="step-ssh-key"><div class="step-dot"></div><div class="step-label">Generate SSH key (if needed)</div></div>
+        <div class="step-item" id="step-ssh-test"><div class="step-dot"></div><div class="step-label">Test SSH connectivity to target</div></div>
+        <div class="step-item" id="step-lsyncd-cfg"><div class="step-dot"></div><div class="step-label">Write lsyncd configuration</div></div>
+        <div class="step-item" id="step-lsyncd-enable"><div class="step-dot"></div><div class="step-label">Enable lsyncd service</div></div>`:''}
+      ${mode!=='file_only'?`
+        <div class="step-item" id="step-repl-user"><div class="step-dot"></div><div class="step-label">Create replication user on source</div></div>
+        <div class="step-item" id="step-ssl-certs"><div class="step-dot"></div><div class="step-label">Generate SSL certificates</div></div>
+        <div class="step-item" id="step-push-ssl"><div class="step-dot"></div><div class="step-label">Push SSL certs to replica</div></div>
+        <div class="step-item" id="step-cfg-src"><div class="step-dot"></div><div class="step-label">Configure source MySQL (my.cnf)</div></div>
+        <div class="step-item" id="step-cfg-rep"><div class="step-dot"></div><div class="step-label">Configure replica MySQL (my.cnf)</div></div>`:''}
+    </div>
+    <div style="margin-top:16px" id="cfgOutput"></div></div>
+    <div class="flex-row between" style="margin-top:8px">
+      <button class="btn btn-ghost" onclick="showPage('prereqs')">&larr; Back</button>
+      <div class="flex-row">
+        <button class="btn btn-primary" onclick="runAutoConfigure()" id="cfgBtn">Auto-Configure Everything</button>
+        <button class="btn btn-ghost" id="cfgNext" onclick="showPage('bulk_sync')" style="margin-left:8px" disabled>Next ${ICONS.arrow}</button>
+      </div>
+    </div>`;
+}
+
+async function runAutoConfigure() {
+  const btn=document.getElementById('cfgBtn');
+  if(btn){btn.disabled=true;btn.innerHTML=`<span class="spinning">${ICONS.refresh}</span> Configuring...`;}
+  const mode=appState.setupMode;
+  let results=[];
+  if(mode!=='db_only'){const r=await apiPost('/api/setup/auto-configure',{});if(r.steps)results=[...results,...r.steps];}
+  if(mode!=='file_only'){const r=await apiPost('/api/db/setup/auto-configure',{});if(r.steps)results=[...results,...r.steps];}
+  const stepMap=[
+    ['Generate SSH key','step-ssh-key'],['SSH connectivity','step-ssh-test'],
+    ['Write lsyncd','step-lsyncd-cfg'],['Enable lsyncd','step-lsyncd-enable'],
+    ['Create replication','step-repl-user'],['Generate SSL','step-ssl-certs'],
+    ['Push SSL','step-push-ssl'],['Configure source','step-cfg-src'],['Configure replica','step-cfg-rep'],
+  ];
+  results.forEach(r=>{
+    const match=stepMap.find(([lbl])=>r.step&&r.step.includes(lbl.split(' ')[0]));
+    if(match){const el=document.getElementById(match[1]);if(el){el.className=`step-item ${r.ok?'ok':'err'}`;el.querySelector('.step-label').textContent=r.step;}}
+  });
+  const ok=results.every(r=>r.ok);
+  const outEl=document.getElementById('cfgOutput');
+  if(outEl) outEl.innerHTML=`<div class="banner ${ok?'banner-ok':'banner-warn'}"><div class="banner-icon">${ok?ICONS.check:ICONS.alert}</div>
+    <div class="banner-text"><div class="banner-title">${ok?'Configuration complete!':'Some steps had issues'}</div>
+    <div class="banner-body">${results.length} steps completed. ${results.filter(r=>!r.ok).length} failed.</div></div></div>`;
+  if(btn){btn.disabled=false;btn.innerHTML=`${ICONS.refresh} Re-run Configure`;}
+  const nxt=document.getElementById('cfgNext');if(nxt) nxt.disabled=false;
+}
+
+function pageBulkSync() {
+  const mode=appState.setupMode;
+  const showFile=mode!=='db_only', showDB=mode!=='file_only';
+  return `
+    <div class="page-header"><div class="page-title">Bulk Sync</div><div class="page-sub">Perform initial bulk data synchronization</div></div>
+    <div class="${showFile&&showDB?'two-col':''}">
+      ${showFile?`<div class="card"><div class="panel-title">${ICONS.layers} File Sync — Initial Rsync</div>
+        <div class="kv-row"><span class="kv-key">Status</span><span class="kv-val" id="fileSyncSt">—</span></div>
+        <div style="margin:12px 0"><div class="prog-label"><span id="filePct">0%</span><span id="fileSpeed" style="color:var(--text3)"></span></div>
+        <div class="prog-track"><div class="prog-fill cyan" id="fileProg" style="width:0%"></div></div></div>
+        <div class="log-box" id="fileLog" style="height:120px"></div>
+        <div style="margin-top:12px"><button class="btn btn-primary" onclick="startFileBulkSync()" id="fileSyncBtn">Start File Sync</button></div>
+      </div>`:''}
+      ${showDB?`<div class="card"><div class="panel-title">${ICONS.database} DB Seed</div>
+        <div class="kv-row"><span class="kv-key">Status</span><span class="kv-val" id="dbSeedSt">—</span></div>
+        <div style="margin:12px 0"><div class="prog-label"><span id="dbPct">0%</span><span id="dbPhase" style="color:var(--text3)"></span></div>
+        <div class="prog-track"><div class="prog-fill violet" id="dbProg" style="width:0%"></div></div></div>
+        <div class="log-box" id="dbLog" style="height:120px"></div>
+        <div style="margin-top:12px"><button class="btn btn-primary" onclick="startDbSeed()" id="dbSeedBtn">Start DB Seed</button></div>
+      </div>`:''}
+    </div>
+    <div class="flex-row between" style="margin-top:16px">
+      <button class="btn btn-ghost" onclick="showPage('configure')">&larr; Back</button>
+      <button class="btn btn-primary" id="bulkNext" onclick="showPage('${appState.setupMode!=='file_only'?'start_repl':'verify'}')" disabled>Next ${ICONS.arrow}</button>
+    </div>`;
+}
+function initBulkSync(){
+  pollFileSyncStatus(); pollDbSeedStatus();
+  pollTimers['bulkSync']=setInterval(()=>{pollFileSyncStatus();pollDbSeedStatus();},3000);
+}
+async function pollFileSyncStatus(){
+  const r=await apiGet('/api/setup/bulk-sync/status'); if(!r) return;
+  const s=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
+  s('fileSyncSt',r.result||(r.running?'Running...':'Not started'));
+  s('filePct',(r.progress||0)+'%'); s('fileSpeed',r.speed||'');
+  const p=document.getElementById('fileProg');
+  if(p){p.style.width=(r.progress||0)+'%';p.className=`prog-fill cyan ${r.running?'active':''}`;}
+  const logEl=document.getElementById('fileLog');
+  if(logEl){logEl.innerHTML=(r.output||[]).slice(-20).map(l=>`<div class="log-line">${escHtml(l)}</div>`).join('');logEl.scrollTop=logEl.scrollHeight;}
+  const btn=document.getElementById('fileSyncBtn');if(btn) btn.disabled=r.running;
+  if(r.result==='success'){const b=document.getElementById('bulkNext');if(b)b.disabled=false;}
+}
+async function pollDbSeedStatus(){
+  const r=await apiGet('/api/db/seed/status'); if(!r) return;
+  const s=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
+  s('dbSeedSt',r.result||(r.running?`Running: ${r.phase}`:'Not started'));
+  s('dbPct',(r.progress||0)+'%'); s('dbPhase',r.phase||'');
+  const p=document.getElementById('dbProg');
+  if(p){p.style.width=(r.progress||0)+'%';p.className=`prog-fill violet ${r.running?'active':''}`;}
+  const logEl=document.getElementById('dbLog');
+  if(logEl){logEl.innerHTML=(r.output||[]).slice(-20).map(l=>`<div class="log-line">${escHtml(l)}</div>`).join('');logEl.scrollTop=logEl.scrollHeight;}
+  const btn=document.getElementById('dbSeedBtn');if(btn) btn.disabled=r.running;
+  if(r.result==='success'){const b=document.getElementById('bulkNext');if(b)b.disabled=false;}
+}
+async function startFileBulkSync(){const r=await apiPost('/api/setup/bulk-sync/start',{});showToast(r.ok?'File sync started':r.message||r.error,r.ok?'ok':'err');}
+async function startDbSeed(){const r=await apiPost('/api/db/seed/start',{});showToast(r.ok?'DB seed started':r.error,r.ok?'ok':'err');}
+
+function pageStartRepl() {
+  return `
+    <div class="page-header"><div class="page-title">Start GTID Replication</div><div class="page-sub">Configure and start MySQL GTID replication from source to replica</div></div>
+    <div class="panel"><div class="panel-title">${ICONS.database} Replication Setup</div>
+    <div class="step-list" id="replSteps">
+      <div class="step-item" id="rs-stop"><div class="step-dot"></div><div class="step-label">Stop existing replication (if any)</div></div>
+      <div class="step-item" id="rs-change"><div class="step-dot"></div><div class="step-label">CHANGE REPLICATION SOURCE TO (GTID + SSL)</div></div>
+      <div class="step-item" id="rs-start"><div class="step-dot"></div><div class="step-label">START REPLICA</div></div>
+      <div class="step-item" id="rs-verify"><div class="step-dot"></div><div class="step-label">Verify IO: Yes, SQL: Yes</div></div>
+    </div>
+    <div id="replOutput" style="margin-top:12px"></div>
+    <div style="margin-top:16px">
+      <button class="btn btn-primary btn-lg" onclick="startGTIDReplication()" id="startReplBtn">Start GTID Replication ${ICONS.git}</button>
+    </div></div>
+    <div class="flex-row between">
+      <button class="btn btn-ghost" onclick="showPage('bulk_sync')">&larr; Back</button>
+      <button class="btn btn-primary" id="replNext" onclick="showPage('verify')" disabled>Next: Verify ${ICONS.arrow}</button>
+    </div>`;
+}
+
+async function startGTIDReplication() {
+  const btn=document.getElementById('startReplBtn'); if(btn) btn.disabled=true;
+  ['rs-stop','rs-change','rs-start','rs-verify'].forEach(id=>{const el=document.getElementById(id);if(el)el.className='step-item running';});
+  const r=await apiPost('/api/db/seed/start-replication',{});
+  ['rs-stop','rs-change','rs-start'].forEach(id=>{const el=document.getElementById(id);if(el)el.className=`step-item ${r.ok?'ok':'err'}`;});
+  if(r.ok){
+    const v=await apiGet('/api/db/seed/verify');
+    const vEl=document.getElementById('rs-verify');if(vEl) vEl.className=`step-item ${v.ok?'ok':'err'}`;
+    if(v.ok){const nxt=document.getElementById('replNext');if(nxt)nxt.disabled=false;await apiPost('/api/setup/mode',{db_setup_complete:true});appState.dbSetupComplete=true;}
+  }
+  const outEl=document.getElementById('replOutput');
+  if(outEl) outEl.innerHTML=`<div class="banner ${r.ok?'banner-ok':'banner-err'}"><div class="banner-icon">${r.ok?ICONS.check:ICONS.alert}</div>
+    <div class="banner-text"><div class="banner-title">${r.ok?'Replication started!':'Replication failed'}</div>
+    <div class="banner-body">${escHtml(r.message||r.error||'')}</div></div></div>`;
+  if(btn) btn.disabled=false;
+}
+
+function pageVerify() {
+  return `
+    <div class="page-header"><div class="page-title">Verify Setup</div><div class="page-sub">Run verification checks before going live</div></div>
+    <div class="panel"><div class="panel-title">${ICONS.check} Verification Checks</div>
+    <div id="verifyChecks"><div class="empty-state">Click Run Verification to begin</div></div>
+    <div style="margin-top:16px"><button class="btn btn-primary" onclick="runVerification()">Run Verification</button></div></div>
+    <div class="flex-row between">
+      <button class="btn btn-ghost" onclick="showPage('bulk_sync')">&larr; Back</button>
+      <button class="btn btn-cyan btn-lg" id="goDashBtn" onclick="goToDashboard()" disabled>Go to Dashboard ${ICONS.arrow}</button>
+    </div>`;
+}
+async function runVerification() {
+  const r=await apiPost('/api/setup/verify',{});
+  const mode=appState.setupMode;
+  let checks=r.checks||[];
+  if(mode!=='file_only'){const v=await apiGet('/api/db/seed/verify');if(v.checks)checks=[...checks,...Object.entries(v.checks).map(([k,v])=>({check:k,ok:v}))];}
+  const el=document.getElementById('verifyChecks');
+  if(!el) return;
+  el.innerHTML=`<div class="check-list">${checks.map(c=>`
+    <div class="check-item ${c.ok?'pass':'fail'}">
+      <div class="check-icon">${c.ok?ICONS.check:ICONS.x}</div>
+      <div class="check-name">${escHtml(c.check||c.name||'')}</div>
+      <div class="check-detail">${escHtml(c.detail||c.error||'')}</div>
+    </div>`).join('')}</div>`;
+  const allOk=checks.every(c=>c.ok);
+  const btn=document.getElementById('goDashBtn');if(btn) btn.disabled=!allOk;
+  if(allOk){await apiPost('/api/setup/mode',{file_setup_complete:true});appState.fileSetupComplete=true;}
+}
+async function goToDashboard(){
+  await apiPost('/api/setup/mode',{file_setup_complete:true});
+  appState.fileSetupComplete=true; renderNav(); showPage('dashboard');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── FILE SYNC PAGES ──
+// ═══════════════════════════════════════════════════════════════
+function pageDashboard() {
+  return `
+    <div class="page-header"><div class="page-title">File Sync Dashboard</div><div class="page-sub">Real-time rsync + lsyncd monitoring</div></div>
+    <div class="metric-row">
+      <div class="mc"><div class="mc-label">${ICONS.bar} Files Transferred</div><div class="mc-val cyan" id="d-files">—</div><div class="mc-sub">this session</div></div>
+      <div class="mc"><div class="mc-label">${ICONS.zap} Speed</div><div class="mc-val violet" id="d-speed">—</div><div class="mc-sub">current</div></div>
+      <div class="mc"><div class="mc-label">${ICONS.activity} Progress</div><div class="mc-val green" id="d-prog">—</div><div class="mc-sub">rsync</div></div>
+      <div class="mc"><div class="mc-label">${ICONS.clock} Last Sync</div><div class="mc-val muted" id="d-last" style="font-size:16px">—</div></div>
+    </div>
+    <div class="two-col">
+      <div class="card"><div class="panel-title">${ICONS.activity} Sync Status</div>
+        <div class="kv-row"><span class="kv-key">lsyncd</span><span class="kv-val" id="ds-lsyncd">checking...</span></div>
+        <div class="kv-row"><span class="kv-key">rsync</span><span class="kv-val" id="ds-rsync">checking...</span></div>
+        <div class="kv-row"><span class="kv-key">SSH</span><span class="kv-val" id="ds-ssh">checking...</span></div>
+        <div class="kv-row"><span class="kv-key">Last result</span><span class="kv-val" id="ds-result">—</span></div>
+        <div style="margin-top:12px">
+          <div class="prog-label"><span id="dashPct">0%</span><span id="dashSpd" style="color:var(--text3)"></span></div>
+          <div class="prog-track"><div class="prog-fill cyan" id="dashProg" style="width:0%"></div></div>
+        </div>
+        <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-primary btn-sm" onclick="triggerRsync()">Trigger Rsync</button>
+          <button class="btn btn-ghost btn-sm" onclick="startLsyncd()">Start lsyncd</button>
+          <button class="btn btn-ghost btn-sm" onclick="stopLsyncd()">Stop lsyncd</button>
+        </div>
+      </div>
+      <div class="card"><div class="panel-title">${ICONS.server} Disk Usage</div>
+        <div class="kv-row"><span class="kv-key">Source</span><span class="kv-val" id="ds-src-pct">—</span></div>
+        <div class="prog-track" style="margin:6px 0 12px"><div class="prog-fill cyan" id="ds-src-bar" style="width:0%"></div></div>
+        <div class="kv-row"><span class="kv-key">Target (Azure)</span><span class="kv-val" id="ds-tgt-pct">—</span></div>
+        <div class="prog-track" style="margin:6px 0"><div class="prog-fill violet" id="ds-tgt-bar" style="width:0%"></div></div>
+        <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px">
+          <div class="kv-row"><span class="kv-key">Watchdog</span><span class="kv-val" id="dw-state">—</span></div>
+          <div class="kv-row"><span class="kv-key">Total drops</span><span class="kv-val" id="dw-drops">—</span></div>
+          <div class="kv-row"><span class="kv-key">Catchups triggered</span><span class="kv-val" id="dw-catchups">—</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="card"><div class="panel-title">${ICONS.activity} Recent Transfer Log</div>
+      <div class="tbl-wrap" id="dashTransferTable"><div class="empty-state">Loading...</div></div>
+    </div>`;
+}
+function initDashboard(){ loadDashboard(); pollTimers['dashboard']=setInterval(loadDashboard,15000); }
+async function loadDashboard() {
+  try {
+    const [status,transfers,disk,wdog,lsyncd]=await Promise.all([
+      apiGet('/api/rsync/status'),apiGet('/api/transfers?limit=10'),
+      apiGet('/api/health/disk'),apiGet('/api/connectivity/state'),apiGet('/api/lsyncd/status'),
+    ]);
+    const s=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
+    s('d-files',(status.files_transferred||0).toLocaleString());
+    s('d-speed',status.speed||'—'); s('d-prog',(status.progress||0)+'%');
+    s('d-last',status.last_run?timeAgo(status.last_run):'—');
+    s('ds-lsyncd',lsyncd.status||'—'); s('ds-rsync',status.running?'Running':'Idle');
+    s('ds-ssh',wdog.connected?'Connected':'Unknown'); s('ds-result',status.last_result||'—');
+    const pct=status.progress||0;
+    const prog=document.getElementById('dashProg');
+    if(prog){prog.style.width=pct+'%';prog.className=`prog-fill cyan ${status.running?'active':''}`;}
+    s('dashPct',pct+'%'); s('dashSpd',status.speed||'');
+    if(disk.source){s('ds-src-pct',`${disk.source.pct}% used`);const b=document.getElementById('ds-src-bar');if(b){b.style.width=disk.source.pct+'%';b.className=`prog-fill ${disk.source.pct>85?'red':'cyan'}`;}}
+    if(disk.target){s('ds-tgt-pct',`${disk.target.pct}% used`);const b=document.getElementById('ds-tgt-bar');if(b){b.style.width=disk.target.pct+'%';b.className=`prog-fill ${disk.target.pct>85?'red':'violet'}`;}}
+    s('dw-state',wdog.connected?'Connected':wdog.connected===false?'Disconnected':'Unknown');
+    s('dw-drops',wdog.total_drops??'—'); s('dw-catchups',wdog.total_catchups??'—');
+    const tblEl=document.getElementById('dashTransferTable');
+    if(tblEl&&transfers.sessions){
+      tblEl.innerHTML=transfers.sessions.length===0?'<div class="empty-state">No transfers yet</div>':`
+        <table><thead><tr><th>Time</th><th>Trigger</th><th>Files</th><th>Size</th><th>Duration</th><th>Status</th></tr></thead>
+        <tbody>${transfers.sessions.map(s=>`<tr>
+          <td>${timeAgo(s.started_at)||'—'}</td><td>${escHtml(s.trigger||'—')}</td>
+          <td>${s.files_transferred??'—'}</td><td>${s.bytes_sent_human||'—'}</td><td>${s.duration_human||'—'}</td>
+          <td><span class="badge ${s.status==='success'?'badge-green':s.status==='running'?'badge-blue':'badge-red'}">${s.status}</span></td>
+        </tr>`).join('')}</tbody></table>`;
+    }
+  } catch(e){}
+}
+async function triggerRsync(){const r=await apiPost('/api/rsync/trigger',{});showToast(r.ok?'rsync triggered':r.detail||r.error||'Failed',r.ok?'ok':'err');}
+async function startLsyncd(){const r=await apiPost('/api/lsyncd/start',{});showToast(r.message||r.detail||'Started','ok');}
+async function stopLsyncd(){const r=await apiPost('/api/lsyncd/stop',{});showToast(r.message||r.detail||'Stopped','ok');}
+
+function pageTransfers() {
+  return `
+    <div class="page-header"><div class="page-title">Transfer History</div><div class="page-sub">rsync session log and partial file tracking</div></div>
+    <div class="panel">
+      <div class="flex-row between" style="margin-bottom:12px">
+        <div class="panel-title">${ICONS.bar} Transfer Sessions</div>
+        <button class="btn btn-ghost btn-sm" onclick="loadTransfers()">${ICONS.refresh} Refresh</button>
+      </div>
+      <div class="tbl-wrap" id="xferTable"><div class="empty-state">Loading...</div></div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">${ICONS.alert} Partial Files</div>
+      <div class="tbl-wrap" id="partialTable"><div class="empty-state">Loading...</div></div>
+      <div style="margin-top:12px;display:flex;gap:8px">
+        <button class="btn btn-ghost btn-sm" onclick="loadPartials()">${ICONS.refresh} Scan</button>
+        <button class="btn btn-primary btn-sm" onclick="resumeTransfer()">Force Resume Rsync</button>
+      </div>
+    </div>
+    <div class="panel"><div class="panel-title">${ICONS.activity} Stats</div>
+      <div id="xferStats" class="metric-row"></div>
+    </div>`;
+}
+function initTransfers(){ loadTransfers(); loadPartials(); loadTransferStats(); }
+async function loadTransfers(){
+  const r=await apiGet('/api/transfers?limit=50');const el=document.getElementById('xferTable');if(!el)return;
+  if(!r.sessions||r.sessions.length===0){el.innerHTML='<div class="empty-state">No transfers recorded</div>';return;}
+  el.innerHTML=`<table><thead><tr><th>#</th><th>Started</th><th>Trigger</th><th>Files</th><th>Size</th><th>Duration</th><th>Status</th></tr></thead>
+    <tbody>${r.sessions.map(s=>`<tr><td>${s.id}</td><td>${timeAgo(s.started_at)||'—'}</td><td>${escHtml(s.trigger||'—')}</td>
+    <td>${s.files_transferred??'—'}</td><td>${s.bytes_sent_human||'—'}</td><td>${s.duration_human||'—'}</td>
+    <td><span class="badge ${s.status==='success'?'badge-green':s.status==='running'?'badge-blue':'badge-red'}">${s.status}</span></td></tr>`).join('')}</tbody></table>`;
+}
+async function loadPartials(){
+  const r=await apiGet('/api/transfers/partials');const el=document.getElementById('partialTable');if(!el)return;
+  if(!r.files||r.files.length===0){el.innerHTML='<div class="empty-state">No partial files detected</div>';return;}
+  el.innerHTML=`<table><thead><tr><th>File</th><th>Size</th><th>Modified</th></tr></thead>
+    <tbody>${r.files.map(f=>`<tr><td>${escHtml(f.path)}</td><td>${f.size_human}</td><td>${f.age_human||'—'}</td></tr>`).join('')}</tbody></table>`;
+}
+async function loadTransferStats(){
+  const r=await apiGet('/api/transfers/stats');const el=document.getElementById('xferStats');if(!el)return;
+  el.innerHTML=`<div class="mc"><div class="mc-label">Total Sessions</div><div class="mc-val violet">${r.total_sessions||0}</div></div>
+    <div class="mc"><div class="mc-label">Success Rate</div><div class="mc-val green">${r.success_rate_pct||0}%</div></div>
+    <div class="mc"><div class="mc-label">Total Bytes</div><div class="mc-val cyan">${r.total_bytes_sent_human||'0 B'}</div></div>
+    <div class="mc"><div class="mc-label">Total Files</div><div class="mc-val muted">${(r.total_files_transferred||0).toLocaleString()}</div></div>`;
+}
+async function resumeTransfer(){const r=await apiPost('/api/transfers/resume',{});showToast(r.ok?'Resume triggered':r.error||'Failed',r.ok?'ok':'err');}
+
+function pageConnectivity() {
+  return `
+    <div class="page-header"><div class="page-title">Connectivity</div><div class="page-sub">SSH watchdog and connection health</div></div>
+    <div class="two-col">
+      <div class="card"><div class="panel-title">${ICONS.zap} SSH Health</div>
+        <div id="sshHealth"><div class="empty-state">Loading...</div></div>
+        <div style="margin-top:12px;display:flex;gap:8px">
+          <button class="btn btn-ghost btn-sm" onclick="checkSSH()">Test SSH</button>
+          <button class="btn btn-ghost btn-sm" onclick="startWatchdog()">Start Watchdog</button>
+          <button class="btn btn-ghost btn-sm" onclick="stopWatchdog()">Stop Watchdog</button>
+        </div>
+      </div>
+      <div class="card"><div class="panel-title">${ICONS.activity} Watchdog State</div>
+        <div id="wdogState"><div class="empty-state">Loading...</div></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="flex-row between" style="margin-bottom:12px">
+        <div class="panel-title">${ICONS.clock} Connection Event Log</div>
+        <button class="btn btn-ghost btn-sm" onclick="loadConnEvents()">${ICONS.refresh}</button>
+      </div>
+      <div class="tbl-wrap" id="connEventsTable"><div class="empty-state">Loading...</div></div>
+    </div>`;
+}
+function initConnectivity(){ checkSSH(); loadConnState(); loadConnEvents(); pollTimers['conn']=setInterval(loadConnState,30000); }
+async function checkSSH(){
+  const r=await apiGet('/api/health/ssh');const el=document.getElementById('sshHealth');if(!el)return;
+  el.innerHTML=`<div class="kv-row"><span class="kv-key">Status</span><span class="kv-val"><span class="status-dot ${r.connected?'healthy':'error'}" style="display:inline-block;margin-right:6px"></span>${r.connected?'Connected':'Disconnected'}</span></div>
+    ${r.output?`<div class="kv-row"><span class="kv-key">Output</span><span class="kv-val" style="font-size:10px">${escHtml(r.output)}</span></div>`:''}
+    ${r.error?`<div class="kv-row"><span class="kv-key">Error</span><span class="kv-val" style="color:var(--red);font-size:10px">${escHtml(r.error)}</span></div>`:''}`;
+}
+async function loadConnState(){
+  const r=await apiGet('/api/connectivity/state');const el=document.getElementById('wdogState');if(!el)return;
+  el.innerHTML=`<div class="kv-row"><span class="kv-key">Running</span><span class="kv-val">${r.running?'Yes':'No'}</span></div>
+    <div class="kv-row"><span class="kv-key">Connected</span><span class="kv-val">${r.connected===true?'Yes':r.connected===false?'No':'Unknown'}</span></div>
+    <div class="kv-row"><span class="kv-key">Connected since</span><span class="kv-val">${r.connected_since?timeAgo(r.connected_since):'—'}</span></div>
+    <div class="kv-row"><span class="kv-key">Last drop</span><span class="kv-val">${r.last_drop_at?timeAgo(r.last_drop_at):'None'}</span></div>
+    <div class="kv-row"><span class="kv-key">Total drops</span><span class="kv-val">${r.total_drops??'—'}</span></div>
+    <div class="kv-row"><span class="kv-key">Catchups triggered</span><span class="kv-val">${r.total_catchups??'—'}</span></div>`;
+}
+async function loadConnEvents(){
+  const r=await apiGet('/api/connectivity?limit=50');const el=document.getElementById('connEventsTable');if(!el)return;
+  if(!r.events||r.events.length===0){el.innerHTML='<div class="empty-state">No events recorded</div>';return;}
+  el.innerHTML=`<table><thead><tr><th>Event</th><th>Time</th><th>Target</th><th>Downtime</th><th>Notes</th></tr></thead>
+    <tbody>${r.events.map(e=>`<tr>
+      <td><span class="badge ${e.event_type==='connected'||e.event_type==='reconnected'?'badge-green':e.event_type==='disconnected'?'badge-red':'badge-gray'}">${e.event_type}</span></td>
+      <td>${timeAgo(e.timestamp)||'—'}</td><td>${e.target_ip||'—'}</td><td>${e.downtime_human||'—'}</td>
+      <td style="color:var(--text3);max-width:200px;overflow:hidden;text-overflow:ellipsis">${escHtml(e.notes||'')}</td>
+    </tr>`).join('')}</tbody></table>`;
+}
+async function startWatchdog(){await apiPost('/api/connectivity/watchdog/start',{});loadConnState();}
+async function stopWatchdog(){await apiPost('/api/connectivity/watchdog/stop',{});loadConnState();}
+
+function pageFailover() {
+  const checks=['lsyncd has been stopped on source','Pending file changes confirmed synced','Azure VM DNS record updated','Moodle config.php updated with new paths','Moodle application server restarted','End-to-end smoke test passed'];
+  return `
+    <div class="page-header"><div class="page-title">File Sync Failover</div><div class="page-sub">Execute filesystem failover to Azure VM</div></div>
+    <div class="banner banner-warn"><div class="banner-icon">${ICONS.alert}</div>
+    <div class="banner-text"><div class="banner-title">Warning: Manual Failover</div>
+    <div class="banner-body">This is a destructive operation. Complete all checklist items before executing.</div></div></div>
+    <div class="panel"><div class="panel-title">${ICONS.check} Pre-Failover Checklist</div>
+    <div class="check-list" id="failoverChecks">
+      ${checks.map((c,i)=>`<div class="check-item" id="fc-${i}">
+        <div class="check-cb" id="cb-${i}" onclick="toggleCheck(${i})">${ICONS.check.replace('currentColor','transparent')}</div>
+        <div class="check-name">${c}</div></div>`).join('')}
+    </div>
+    <div style="margin-top:16px">
+      <div class="prog-label"><span id="foCheckedPct">0 / ${checks.length} completed</span></div>
+      <div class="prog-track"><div class="prog-fill" id="foCheckProg" style="width:0%;background:var(--amber)"></div></div>
+    </div></div>
+    <div class="flex-row" style="justify-content:flex-end">
+      <button class="btn btn-danger btn-lg" id="executeFailoverBtn" disabled onclick="executeFileFailover()">
+        ${ICONS.alert} Execute File Failover
+      </button>
+    </div>`;
+}
+let foChecked=new Set();
+const FO_TOTAL=6;
+function toggleCheck(i){
+  if(foChecked.has(i))foChecked.delete(i); else foChecked.add(i);
+  const cb=document.getElementById(`cb-${i}`),item=document.getElementById(`fc-${i}`);
+  if(cb) cb.className=`check-cb ${foChecked.has(i)?'checked':''}`;
+  if(item) item.className=`check-item ${foChecked.has(i)?'pass':''}`;
+  const pct=(foChecked.size/FO_TOTAL)*100;
+  const pEl=document.getElementById('foCheckProg');if(pEl) pEl.style.width=pct+'%';
+  const lEl=document.getElementById('foCheckedPct');if(lEl) lEl.textContent=`${foChecked.size} / ${FO_TOTAL} completed`;
+  const btn=document.getElementById('executeFailoverBtn');if(btn) btn.disabled=foChecked.size<FO_TOTAL;
+}
+async function executeFileFailover(){
+  if(!confirm('Execute file failover? This will stop lsyncd.')) return;
+  await apiPost('/api/lsyncd/stop',{}); showToast('lsyncd stopped. Failover initiated.','ok');
+}
+
+function pageFileSettings() {
+  return `
+    <div class="page-header"><div class="page-title">File Sync Settings</div><div class="page-sub">Configure rsync and lsyncd settings</div></div>
+    <div class="panel"><div class="panel-title">${ICONS.settings} File Sync Configuration</div>
+    <div class="form-grid">
+      <div class="form-row"><label class="form-label">Target VM IP</label><input id="fs-ip" class="input" placeholder="20.86.145.98"/></div>
+      <div class="form-row"><label class="form-label">Sync User</label><input id="fs-user" class="input"/></div>
+      <div class="form-row"><label class="form-label">SSH Key Path</label><input id="fs-key" class="input"/></div>
+      <div class="form-row"><label class="form-label">Source Path</label><input id="fs-src" class="input"/></div>
+      <div class="form-row"><label class="form-label">Target Path</label><input id="fs-tgt" class="input"/></div>
+    </div>
+    <div class="flex-row" style="gap:8px;margin-top:16px">
+      <button class="btn btn-primary" onclick="saveFileSettings()">Save Settings</button>
+      <button class="btn btn-ghost" onclick="testSSH()">Test Connection</button>
+    </div></div>
+    <div class="panel danger-zone"><div class="danger-zone-title">${ICONS.alert} Danger Zone</div>
+    <div class="flex-row" style="gap:8px">
+      <button class="btn btn-danger btn-sm" onclick="rerunConfigure()">Re-run Configure</button>
+      <button class="btn btn-danger btn-sm" onclick="resetSetup()">Reset Setup</button>
+    </div></div>`;
+}
+function initFileSettings(){
+  apiGet('/api/setup/config').then(r=>{
+    const f=r.file||{};
+    const set=(id,val)=>{const el=document.getElementById(id);if(el&&val)el.value=val;};
+    set('fs-ip',f.target_ip);set('fs-user',f.sync_user);set('fs-key',f.ssh_key_path);
+    set('fs-src',f.src_path);set('fs-tgt',f.target_path);
+  });
+}
+async function saveFileSettings(){
+  const g=id=>{const el=document.getElementById(id);return el?el.value:'';};
+  const r=await apiPost('/api/setup/config',{target_ip:g('fs-ip'),sync_user:g('fs-user'),ssh_key_path:g('fs-key'),src_path:g('fs-src'),target_path:g('fs-tgt')});
+  showToast(r.ok?'Settings saved':r.error,r.ok?'ok':'err');
+}
+async function testSSH(){const r=await apiGet('/api/health/ssh');showToast(r.connected?'SSH OK: '+(r.output||'connected'):'SSH failed: '+(r.error||'unknown'),r.connected?'ok':'err');}
+async function rerunConfigure(){const r=await apiPost('/api/setup/auto-configure',{});showToast(r.ok?'Configure complete':'Configure had errors',r.ok?'ok':'warn');}
+async function resetSetup(){if(!confirm('Reset all setup state?'))return;await apiPost('/api/setup/reset',{});showToast('Setup reset','ok');}
+
+// ═══════════════════════════════════════════════════════════════
+// ── DB REPLICATION PAGE ──
+// ═══════════════════════════════════════════════════════════════
+function pageDbReplication() {
+  return `
+    <div class="page-header"><div class="page-title">DB Replication</div><div class="page-sub">MySQL GTID replication monitoring and control</div></div>
+    <div class="metric-row">
+      <div class="mc"><div class="mc-label">${ICONS.activity} IO Thread</div><div class="mc-val" id="db-io">—</div></div>
+      <div class="mc"><div class="mc-label">${ICONS.activity} SQL Thread</div><div class="mc-val" id="db-sql">—</div></div>
+      <div class="mc"><div class="mc-label">${ICONS.clock} Lag</div><div class="mc-val cyan" id="db-lag">—</div><div class="mc-sub">seconds</div></div>
+      <div class="mc"><div class="mc-label">${ICONS.git} Status</div><div class="mc-val" id="db-status">—</div></div>
+    </div>
+    <div class="two-col">
+      <div class="card"><div class="panel-title">${ICONS.git} GTID Info</div>
+        <div class="kv-row"><span class="kv-key">Retrieved GTIDs</span></div>
+        <div class="code-block" id="db-retrieved" style="font-size:10px;margin:4px 0 10px;word-break:break-all">—</div>
+        <div class="kv-row"><span class="kv-key">Executed GTIDs</span></div>
+        <div class="code-block" id="db-executed" style="font-size:10px;margin:4px 0 10px;word-break:break-all">—</div>
+        <div class="kv-row"><span class="kv-key">Source UUID</span><span class="kv-val" id="db-uuid" style="font-size:10px;word-break:break-all">—</span></div>
+        <div class="kv-row"><span class="kv-key">SSL</span><span class="kv-val" id="db-ssl">—</span></div>
+        <div class="kv-row"><span class="kv-key">Auto Position</span><span class="kv-val" id="db-autopos">—</span></div>
+        <div class="kv-row"><span class="kv-key">Heartbeats</span><span class="kv-val" id="db-hbeats">—</span></div>
+      </div>
+      <div class="card"><div class="panel-title">${ICONS.settings} Controls</div>
+        <div id="dbErrors" style="margin-bottom:12px"></div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <button class="btn btn-success btn-sm" onclick="startReplication()">Start Replica</button>
+          <button class="btn btn-danger btn-sm" onclick="stopReplication()">Stop Replica</button>
+          <button class="btn btn-ghost btn-sm" onclick="resetReplication()">Reset Replica ALL</button>
+          <button class="btn btn-ghost btn-sm" onclick="flushLogs()">Flush Binary Logs</button>
+          <button class="btn btn-ghost btn-sm" onclick="checkErrantGTIDs()">Check Errant GTIDs</button>
+          <button class="btn btn-ghost btn-sm" onclick="increaseWorkers()">Increase Parallel Workers</button>
+        </div>
+        <div id="ctrlOutput" style="margin-top:12px"></div>
+      </div>
+    </div>
+    <div class="panel"><div class="panel-title">${ICONS.activity} Lag History (24h)</div>
+      <div class="chart-wrap"><canvas id="lagChart"></canvas></div>
+    </div>
+    <div class="panel">
+      <div class="flex-row between" style="margin-bottom:12px">
+        <div class="panel-title">${ICONS.clock} Recent Events</div>
+        <button class="btn btn-ghost btn-sm" onclick="loadDbEvents()">${ICONS.refresh}</button>
+      </div>
+      <div class="tbl-wrap" id="dbEventsTable"><div class="empty-state">Loading...</div></div>
+    </div>`;
+}
+function initDbReplication(){ loadDbHealth(); loadDbHistory(); loadDbEvents(); pollTimers['dbHealth']=setInterval(loadDbHealth,15000); }
+async function loadDbHealth(){
+  const r=await apiGet('/api/db/health'); if(!r) return;
+  const s=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
+  const io=r.io_running||'—', sql=r.sql_running||'—', lag=r.lag_seconds, status=r.status||'unknown';
+  const ioEl=document.getElementById('db-io'); if(ioEl){ioEl.textContent=io;ioEl.className=`mc-val ${io==='Yes'?'green':io==='No'?'red':'muted'}`;}
+  const sqlEl=document.getElementById('db-sql'); if(sqlEl){sqlEl.textContent=sql;sqlEl.className=`mc-val ${sql==='Yes'?'green':sql==='No'?'red':'muted'}`;}
+  s('db-lag',lag!=null?lag+'s':'—');
+  const stEl=document.getElementById('db-status');
+  if(stEl){stEl.textContent=status;stEl.className=`mc-val ${status==='healthy'?'green':status==='error'?'red':status==='lagging'?'amber':'muted'}`;}
+  s('db-retrieved',r.retrieved_gtid_set||'(empty)'); s('db-executed',r.executed_gtid_set||'(empty)');
+  s('db-uuid',r.source_uuid||'—'); s('db-ssl',r.ssl_allowed||'—');
+  s('db-autopos',r.auto_position!=null?(r.auto_position?'Yes':'No'):'—'); s('db-hbeats',r.heartbeats_received??'—');
+  const errEl=document.getElementById('dbErrors');
+  if(errEl){const errs=[r.last_io_error,r.last_sql_error].filter(Boolean);
+    errEl.innerHTML=errs.length===0?'':errs.map(e=>`<div class="banner banner-err" style="margin-bottom:8px;padding:10px 12px"><div class="banner-icon">${ICONS.alert}</div><div class="banner-text" style="font-size:12px">${escHtml(e)}</div></div>`).join('');}
+}
+async function loadDbHistory(){
+  const r=await apiGet('/api/db/health/history?n=288');
+  const canvas=document.getElementById('lagChart'); if(!canvas) return;
+  drawLineChart(canvas,(r&&r.history||[]).map(h=>h.lag_seconds),'#22d3ee');
+}
+async function loadDbEvents(){
+  const r=await apiGet('/api/db/health/history?n=20');const el=document.getElementById('dbEventsTable');if(!el)return;
+  if(!r.history||r.history.length===0){el.innerHTML='<div class="empty-state">No events</div>';return;}
+  el.innerHTML=`<table><thead><tr><th>Time</th><th>IO</th><th>SQL</th><th>Lag</th><th>Status</th><th>Error</th></tr></thead>
+    <tbody>${r.history.slice().reverse().slice(0,20).map(h=>`<tr>
+      <td>${timeAgo(h.sampled_at)||h.sampled_at}</td>
+      <td><span class="badge ${h.io_running==='Yes'?'badge-green':'badge-red'}">${h.io_running||'—'}</span></td>
+      <td><span class="badge ${h.sql_running==='Yes'?'badge-green':'badge-red'}">${h.sql_running||'—'}</span></td>
+      <td>${h.lag_seconds??'—'}s</td>
+      <td><span class="badge ${h.status==='healthy'?'badge-green':h.status==='error'?'badge-red':'badge-amber'}">${h.status||'—'}</span></td>
+      <td style="color:var(--red);max-width:200px;overflow:hidden;text-overflow:ellipsis">${escHtml(h.last_io_error||h.last_sql_error||'')}</td>
+    </tr>`).join('')}</tbody></table>`;
+}
+async function dbCtrl(endpoint,label){
+  const r=await apiPost(endpoint,{});
+  const el=document.getElementById('ctrlOutput');
+  if(el) el.innerHTML=`<div class="banner ${r.ok?'banner-ok':'banner-err'}"><div class="banner-icon">${r.ok?ICONS.check:ICONS.alert}</div>
+    <div class="banner-text"><div class="banner-title">${label}</div><div class="banner-body">${escHtml(r.message||r.error||'')}</div></div></div>`;
+  showToast(r.ok?`${label} OK`:`${label} failed: ${r.error}`,r.ok?'ok':'err');
+  if(r.ok) setTimeout(loadDbHealth,1000);
+}
+function startReplication(){dbCtrl('/api/db/replication/start','Start Replica');}
+function stopReplication(){dbCtrl('/api/db/replication/stop','Stop Replica');}
+function resetReplication(){if(confirm('Reset replica? Requires reconfiguration.'))dbCtrl('/api/db/replication/reset','Reset Replica');}
+function flushLogs(){dbCtrl('/api/db/replication/flush-logs','Flush Logs');}
+async function checkErrantGTIDs(){
+  const r=await apiGet('/api/db/recovery/errant-gtids');const el=document.getElementById('ctrlOutput');if(!el)return;
+  if(!r.ok){el.innerHTML=`<div class="banner banner-err"><div class="banner-icon">${ICONS.alert}</div><div class="banner-text"><div class="banner-title">Error</div><div class="banner-body">${escHtml(r.error)}</div></div></div>`;return;}
+  el.innerHTML=`<div class="banner ${r.has_errant?'banner-warn':'banner-ok'}"><div class="banner-icon">${r.has_errant?ICONS.alert:ICONS.check}</div>
+    <div class="banner-text"><div class="banner-title">${r.has_errant?'Errant GTIDs Found':'No Errant GTIDs'}</div>
+    ${r.has_errant?`<div class="banner-body" style="font-family:var(--mono);font-size:11px">${escHtml(r.errant_gtids)}</div>`:''}</div></div>`;
+}
+async function increaseWorkers(){
+  const n=prompt('Number of parallel workers:','8');if(!n)return;
+  const r=await apiPost('/api/db/recovery/increase-workers',{workers:parseInt(n)});
+  showToast(r.ok?r.message:r.error,r.ok?'ok':'err');
+}
+
+function pageDbIntegrity() {
+  return `
+    <div class="page-header"><div class="page-title">DB Integrity</div><div class="page-sub">Table count and checksum verification</div></div>
+    <div class="panel">
+      <div class="flex-row between" style="margin-bottom:12px">
+        <div class="panel-title">${ICONS.shield} Table Count Check</div>
+        <button class="btn btn-primary btn-sm" onclick="runTableCount()">Run Table Count</button>
+      </div>
+      <div class="tbl-wrap" id="tableCountResult"><div class="empty-state">Click "Run Table Count" to begin</div></div>
+    </div>
+    <div class="panel">
+      <div class="flex-row between" style="margin-bottom:12px">
+        <div class="panel-title">${ICONS.shield} CHECKSUM TABLE</div>
+        <button class="btn btn-ghost btn-sm" onclick="runChecksum()">Run Checksum</button>
+      </div>
+      <div class="tbl-wrap" id="checksumResult"><div class="empty-state">Click "Run Checksum" to begin</div></div>
+      <div id="checksumAction" style="margin-top:12px;display:none">
+        <button class="btn btn-danger btn-sm" onclick="runPtSync()">Run pt-table-sync (Fix Drift)</button>
+      </div>
+    </div>
+    <div class="panel"><div class="panel-title">${ICONS.clock} Check History</div>
+      <div class="tbl-wrap" id="integrityHistory"><div class="empty-state">Loading...</div></div>
+    </div>`;
+}
+async function runTableCount(){
+  const el=document.getElementById('tableCountResult');if(el) el.innerHTML='<div class="empty-state">Running...</div>';
+  const r=await apiPost('/api/db/integrity/table-count',{});if(!el)return;
+  if(!r.ok){el.innerHTML=`<div class="empty-state" style="color:var(--red)">${escHtml(r.error)}</div>`;return;}
+  el.innerHTML=`<table><thead><tr><th>Table</th><th>Source</th><th>Replica</th><th>Delta</th><th>Status</th></tr></thead>
+    <tbody>${(r.results||[]).map(row=>`<tr>
+      <td>${escHtml(row.table)}</td><td>${row.source?.toLocaleString()??'—'}</td><td>${row.replica?.toLocaleString()??'—'}</td>
+      <td>${row.delta!=null?(row.delta>0?'+':'')+row.delta:'—'}</td>
+      <td><span class="badge ${row.status==='ok'?'badge-green':row.status==='warn'?'badge-amber':'badge-red'}">${row.status}</span></td>
+    </tr>`).join('')}</tbody></table>`;
+  if(r.drift_detected) showToast('Drift detected! Consider running pt-table-sync.','warn');
+  loadIntegrityHistory();
+}
+async function runChecksum(){
+  const el=document.getElementById('checksumResult');if(el) el.innerHTML='<div class="empty-state">Running CHECKSUM TABLE...</div>';
+  const r=await apiPost('/api/db/integrity/checksum',{});if(!el)return;
+  if(!r.ok){el.innerHTML=`<div class="empty-state" style="color:var(--red)">${escHtml(r.error)}</div>`;return;}
+  el.innerHTML=`<table><thead><tr><th>Table</th><th>Source Checksum</th><th>Replica Checksum</th><th>Match</th></tr></thead>
+    <tbody>${(r.results||[]).map(row=>`<tr>
+      <td>${escHtml(row.table)}</td><td>${row.source_checksum??'—'}</td><td>${row.replica_checksum??'—'}</td>
+      <td><span class="badge ${row.match?'badge-green':'badge-red'}">${row.match?'Match':'Drift'}</span></td>
+    </tr>`).join('')}</tbody></table>`;
+  const actionEl=document.getElementById('checksumAction');if(actionEl) actionEl.style.display=r.drift_detected?'block':'none';
+  loadIntegrityHistory();
+}
+async function runPtSync(){
+  if(!confirm('Run pt-table-sync to fix drift? This modifies the replica.'))return;
+  const r=await apiPost('/api/db/pt/run-sync',{});
+  showToast(r.ok?'pt-table-sync complete':'pt-table-sync failed: '+(r.error||''),r.ok?'ok':'err');
+}
+async function loadIntegrityHistory(){
+  const r=await apiGet('/api/db/integrity/history');const el=document.getElementById('integrityHistory');if(!el)return;
+  if(!r.history||r.history.length===0){el.innerHTML='<div class="empty-state">No history</div>';return;}
+  el.innerHTML=`<table><thead><tr><th>Time</th><th>Action</th><th>Result</th><th>Details</th></tr></thead>
+    <tbody>${r.history.map(h=>`<tr>
+      <td>${timeAgo(h.timestamp)||h.timestamp}</td><td>${escHtml(h.action)}</td>
+      <td><span class="badge ${h.result==='ok'?'badge-green':'badge-amber'}">${h.result}</span></td>
+      <td style="font-size:10px;max-width:200px;overflow:hidden;text-overflow:ellipsis">${escHtml(h.details||'')}</td>
+    </tr>`).join('')}</tbody></table>`;
+}
+
+function pageDbFailover() {
+  return `
+    <div class="page-header"><div class="page-title">DB Failover</div><div class="page-sub">Promote replica to primary MySQL server</div></div>
+    <div class="banner banner-err"><div class="banner-icon">${ICONS.alert}</div>
+    <div class="banner-text"><div class="banner-title">Critical: MySQL Failover</div>
+    <div class="banner-body">This will stop replication and promote the replica to primary. Moodle will need its config.php updated.</div></div></div>
+    <div class="panel">
+      <div class="flex-row between" style="margin-bottom:12px">
+        <div class="panel-title">${ICONS.shield} Pre-Failover Checks</div>
+        <button class="btn btn-ghost btn-sm" onclick="runDbPreCheck()">Run Checks</button>
+      </div>
+      <div id="dbPreChecks"><div class="empty-state">Click "Run Checks" to begin</div></div>
+    </div>
+    <div class="panel"><div class="panel-title">${ICONS.server} Failover Steps Preview</div>
+    <div class="step-list">
+      <div class="step-item"><div class="step-dot"></div><div class="step-label">Stop replication on replica (~5s)</div></div>
+      <div class="step-item"><div class="step-dot"></div><div class="step-label">Disable read_only on replica (~5s)</div></div>
+      <div class="step-item"><div class="step-dot"></div><div class="step-label">Update Moodle config.php (~60s)</div></div>
+      <div class="step-item"><div class="step-dot"></div><div class="step-label">DNS cutover (~300s — manual)</div></div>
+    </div></div>
+    <div class="panel"><div class="panel-title">${ICONS.database} config.php Preview</div>
+      <div class="code-block" id="configPhpPreview">// Will show new $CFG->dbhost after pre-check</div>
+      <button class="btn btn-ghost btn-sm" style="margin-top:8px" onclick="copyConfigPhp()">Copy</button>
+    </div>
+    <div class="flex-row" style="justify-content:flex-end;gap:10px">
+      <button class="btn btn-danger btn-lg" id="execDbFailoverBtn" disabled onclick="executeDbFailover()">${ICONS.alert} Execute DB Failover</button>
+    </div>
+    <div id="dbFailoverResult" style="margin-top:16px"></div>`;
+}
+function initDbFailover(){ runDbPreCheck(); }
+async function runDbPreCheck(){
+  const r=await apiPost('/api/db/failover/pre-check',{});const el=document.getElementById('dbPreChecks');if(!el)return;
+  if(!r.ok){el.innerHTML=`<div class="empty-state" style="color:var(--red)">${escHtml(r.error)}</div>`;return;}
+  el.innerHTML=`<div style="margin-bottom:10px"><span class="badge ${r.passed>=5?'badge-green':r.passed>=3?'badge-amber':'badge-red'}">${r.passed}/${r.total} passed</span></div>
+    <div class="check-list">${r.checks.map(c=>`<div class="check-item ${c.ok?'pass':'fail'}">
+      <div class="check-icon">${c.ok?ICONS.check:ICONS.x}</div>
+      <div class="check-name">${escHtml(c.name)}</div><div class="check-detail">${escHtml(c.value||'')}</div>
+    </div>`).join('')}</div>`;
+  const btn=document.getElementById('execDbFailoverBtn');if(btn) btn.disabled=r.passed<5;
+  const cfgEl=document.getElementById('configPhpPreview');
+  if(cfgEl){const cfg=await apiGet('/api/db/config');const rh=cfg.config?.replica_host||'replica-host';
+    cfgEl.textContent=`$CFG->dbhost   = '${rh}';\n$CFG->dbname   = 'moodle';\n$CFG->dbuser   = 'moodleuser';\n// Update password if different on replica`;}
+}
+async function executeDbFailover(){
+  if(!confirm('CONFIRM: Initiate MySQL failover? This is irreversible without manual reconfiguration.'))return;
+  const r=await apiPost('/api/db/failover/initiate',{});const el=document.getElementById('dbFailoverResult');if(!el)return;
+  el.innerHTML=`<div class="banner ${r.ok?'banner-ok':'banner-err'}"><div class="banner-icon">${r.ok?ICONS.check:ICONS.alert}</div>
+    <div class="banner-text"><div class="banner-title">${r.ok?'Failover initiated!':'Failover failed'}</div>
+    <div class="banner-body">${escHtml(r.message||r.error||'')}</div>
+    ${r.next_steps?'<ul style="margin-top:8px;padding-left:16px">'+r.next_steps.map(s=>`<li style="font-size:12px;margin-bottom:4px">${escHtml(s)}</li>`).join('')+'</ul>':''}</div></div>`;
+}
+function copyConfigPhp(){const el=document.getElementById('configPhpPreview');if(el){navigator.clipboard.writeText(el.textContent);showToast('Copied!','ok');}}
+
+function pageDbSettings() {
+  return `
+    <div class="page-header"><div class="page-title">DB Replication Settings</div><div class="page-sub">MySQL replication configuration</div></div>
+    <div class="panel"><div class="panel-title">${ICONS.settings} Database Configuration</div>
+    <div class="form-grid">
+      <div class="form-row"><label class="form-label">Source Host</label><input id="dbs-shost" class="input"/></div>
+      <div class="form-row"><label class="form-label">Source Port</label><input id="dbs-sport" class="input" type="number"/></div>
+      <div class="form-row"><label class="form-label">Replica Host</label><input id="dbs-rhost" class="input"/></div>
+      <div class="form-row"><label class="form-label">Replica Port</label><input id="dbs-rport" class="input" type="number"/></div>
+      <div class="form-row"><label class="form-label">Replication User</label><input id="dbs-ruser" class="input"/></div>
+      <div class="form-row"><label class="form-label">Replication Password</label><div class="pw-wrap"><input id="dbs-rpass" class="input" type="password"/><button class="pw-eye" onclick="togglePw('dbs-rpass')">${ICONS.eye}</button></div></div>
+      <div class="form-row"><label class="form-label">Source DB User</label><input id="dbs-sdbuser" class="input"/></div>
+      <div class="form-row"><label class="form-label">Source DB Password</label><div class="pw-wrap"><input id="dbs-sdbpass" class="input" type="password"/><button class="pw-eye" onclick="togglePw('dbs-sdbpass')">${ICONS.eye}</button></div></div>
+      <div class="form-row"><label class="form-label">Replica DB User</label><input id="dbs-rdbuser" class="input"/></div>
+      <div class="form-row"><label class="form-label">Replica DB Password</label><div class="pw-wrap"><input id="dbs-rdbpass" class="input" type="password"/><button class="pw-eye" onclick="togglePw('dbs-rdbpass')">${ICONS.eye}</button></div></div>
+      <div class="form-row"><label class="form-label">Moodle DB Name</label><input id="dbs-dbname" class="input"/></div>
+      <div class="form-row"><label class="form-label">Seed Method</label><select id="dbs-seed" class="select"><option value="mysqldump">mysqldump</option><option value="xtrabackup">XtraBackup</option></select></div>
+    </div>
+    <div class="flex-row" style="gap:8px;margin-top:16px">
+      <button class="btn btn-primary" onclick="saveDbSettings()">Save</button>
+      <button class="btn btn-ghost" onclick="testSourceDb()">Test Source</button>
+      <button class="btn btn-ghost" onclick="testReplicaDb()">Test Replica</button>
+    </div>
+    <div id="dbSettingsResult" style="margin-top:12px"></div></div>
+    <div class="panel"><div class="panel-title">${ICONS.settings} Advanced Setup Steps</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-ghost btn-sm" onclick="runStep('create-repl-user')">Create Repl User</button>
+      <button class="btn btn-ghost btn-sm" onclick="runStep('generate-ssl-certs')">Generate SSL</button>
+      <button class="btn btn-ghost btn-sm" onclick="runStep('push-ssl-to-replica')">Push SSL to Replica</button>
+      <button class="btn btn-ghost btn-sm" onclick="runStep('configure-source')">Configure Source</button>
+      <button class="btn btn-ghost btn-sm" onclick="runStep('configure-replica')">Configure Replica</button>
+      <button class="btn btn-ghost btn-sm" onclick="startPtHeartbeat()">Start pt-heartbeat</button>
+      <button class="btn btn-ghost btn-sm" onclick="stopPtHeartbeat()">Stop pt-heartbeat</button>
+      <button class="btn btn-ghost btn-sm" onclick="runPtChecksum()">Run pt-checksum</button>
+    </div>
+    <div id="advStepResult" style="margin-top:12px"></div></div>
+    <div class="panel danger-zone"><div class="danger-zone-title">${ICONS.alert} Danger Zone</div>
+    <div class="flex-row" style="gap:8px"><button class="btn btn-danger btn-sm" onclick="reseedConfirm()">Re-seed Database</button></div></div>`;
+}
+function initDbSettings(){
+  apiGet('/api/db/config').then(r=>{
+    const c=r.config||{};
+    const set=(id,val)=>{const el=document.getElementById(id);if(el&&val!=null)el.value=val;};
+    set('dbs-shost',c.source_host);set('dbs-sport',c.source_port);
+    set('dbs-rhost',c.replica_host);set('dbs-rport',c.replica_port);
+    set('dbs-ruser',c.repl_user);set('dbs-sdbuser',c.source_db_user);
+    set('dbs-rdbuser',c.replica_db_user);set('dbs-dbname',c.moodle_db_name);
+    if(c.seed_method){const el=document.getElementById('dbs-seed');if(el)el.value=c.seed_method;}
+  });
+}
+async function saveDbSettings(){
+  const g=id=>{const el=document.getElementById(id);return el?el.value:'';};
+  const body={source_host:g('dbs-shost'),source_port:parseInt(g('dbs-sport'))||3306,replica_host:g('dbs-rhost'),replica_port:parseInt(g('dbs-rport'))||3306,repl_user:g('dbs-ruser'),repl_password:g('dbs-rpass'),source_db_user:g('dbs-sdbuser'),source_db_password:g('dbs-sdbpass'),replica_db_user:g('dbs-rdbuser'),replica_db_password:g('dbs-rdbpass'),moodle_db_name:g('dbs-dbname'),seed_method:g('dbs-seed')};
+  const r=await apiPost('/api/db/config',body);showToast(r.ok?'DB settings saved':r.error,r.ok?'ok':'err');
+}
+async function testSourceDb(){
+  const r=await apiGet('/api/db/config/test-source');const el=document.getElementById('dbSettingsResult');
+  if(el) el.innerHTML=`<div class="banner ${r.ok?'banner-ok':'banner-err'}"><div class="banner-icon">${r.ok?ICONS.check:ICONS.alert}</div>
+    <div class="banner-text"><div class="banner-title">${r.ok?'Source MySQL connected':'Source connection failed'}</div>
+    <div class="banner-body">${r.ok?`Version: ${r.version}, GTID: ${r.gtid_mode}`:escHtml(r.error)}</div></div></div>`;
+}
+async function testReplicaDb(){
+  const r=await apiGet('/api/db/config/test-replica');const el=document.getElementById('dbSettingsResult');
+  if(el) el.innerHTML=`<div class="banner ${r.ok?'banner-ok':'banner-err'}"><div class="banner-icon">${r.ok?ICONS.check:ICONS.alert}</div>
+    <div class="banner-text"><div class="banner-title">${r.ok?'Replica MySQL connected':'Replica connection failed'}</div>
+    <div class="banner-body">${r.ok?`Version: ${r.version}, read_only: ${r.read_only}`:escHtml(r.error)}</div></div></div>`;
+}
+async function runStep(step){
+  const r=await apiPost(`/api/db/setup/${step}`,{});const el=document.getElementById('advStepResult');
+  if(el) el.innerHTML=`<div class="banner ${r.ok?'banner-ok':'banner-err'}"><div class="banner-icon">${r.ok?ICONS.check:ICONS.alert}</div>
+    <div class="banner-text"><div class="banner-title">${step}: ${r.ok?'OK':'Failed'}</div>
+    <div class="banner-body">${escHtml(r.message||r.error||'')}</div></div></div>`;
+}
+async function startPtHeartbeat(){const r=await apiPost('/api/db/pt/start-heartbeat',{});showToast(r.message||r.error||'','ok');}
+async function stopPtHeartbeat(){const r=await apiPost('/api/db/pt/stop-heartbeat',{});showToast(r.message||r.error||'','ok');}
+async function runPtChecksum(){showToast('Running pt-table-checksum...','info');const r=await apiPost('/api/db/pt/run-checksum',{});showToast(r.ok?'Checksum complete':'Checksum failed: '+(r.error||''),r.ok?'ok':'err');}
+async function reseedConfirm(){
+  if(!confirm('Re-seed database? This will overwrite all replica data.'))return;
+  if(!confirm('FINAL CONFIRMATION: Re-seed database?'))return;
+  const r=await apiPost('/api/db/seed/start',{});showToast(r.ok?'Re-seed started':r.error,r.ok?'ok':'err');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── MIGRATION PAGES ──
+// ═══════════════════════════════════════════════════════════════
+function pageInitialMigration() {
+  return `
+    <div class="page-header"><div class="page-title">Initial Migration</div><div class="page-sub">Track progress of file and database synchronization</div></div>
+    <div class="panel"><div class="panel-title">${ICONS.layers} Migration Phases</div>
+    <div style="display:flex;align-items:center;gap:0;margin-bottom:20px">
+      <div class="ws-item active"><div class="ws-num">1</div><div class="ws-label">File Bulk Sync</div></div>
+      <div class="ws-sep"></div>
+      <div class="ws-item"><div class="ws-num">2</div><div class="ws-label">DB Seed</div></div>
+      <div class="ws-sep"></div>
+      <div class="ws-item"><div class="ws-num">3</div><div class="ws-label">Verify</div></div>
+    </div></div>
+    <div class="two-col">
+      <div class="card"><div class="panel-title">${ICONS.layers} File Sync Progress</div>
+        <div class="kv-row"><span class="kv-key">Status</span><span class="kv-val" id="mig-fst">—</span></div>
+        <div style="margin:10px 0"><div class="prog-label"><span id="mig-fpct">0%</span><span id="mig-fspd" style="color:var(--text3)"></span></div>
+        <div class="prog-track"><div class="prog-fill cyan" id="mig-fprog" style="width:0%"></div></div></div>
+        <div class="kv-row"><span class="kv-key">Files</span><span class="kv-val" id="mig-ffiles">—</span></div>
+        <div class="kv-row"><span class="kv-key">Bytes</span><span class="kv-val" id="mig-fbytes">—</span></div>
+      </div>
+      <div class="card"><div class="panel-title">${ICONS.database} DB Seed Progress</div>
+        <div class="kv-row"><span class="kv-key">Status</span><span class="kv-val" id="mig-dst">—</span></div>
+        <div style="margin:10px 0"><div class="prog-label"><span id="mig-dpct">0%</span><span id="mig-dphase" style="color:var(--text3)"></span></div>
+        <div class="prog-track"><div class="prog-fill violet" id="mig-dprog" style="width:0%"></div></div></div>
+        <div class="kv-row"><span class="kv-key">Dump Size</span><span class="kv-val" id="mig-dsize">—</span></div>
+        <div class="kv-row"><span class="kv-key">GTID Purged</span><span class="kv-val" id="mig-dgtid" style="font-size:10px;word-break:break-all">—</span></div>
+      </div>
+    </div>`;
+}
+function initInitialMigration(){ loadMigStatus(); pollTimers['migration']=setInterval(loadMigStatus,5000); }
+async function loadMigStatus(){
+  const [file,db]=await Promise.all([apiGet('/api/setup/bulk-sync/status'),apiGet('/api/db/seed/status')]);
+  const s=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
+  s('mig-fst',file.result||(file.running?'Running':'Not started'));
+  s('mig-fpct',(file.progress||0)+'%'); s('mig-fspd',file.speed||'');
+  const fp=document.getElementById('mig-fprog');
+  if(fp){fp.style.width=(file.progress||0)+'%';fp.className=`prog-fill cyan ${file.running?'active':''}`;}
+  s('mig-ffiles',file.files_transferred??'—'); s('mig-fbytes',file.bytes_sent_human||'—');
+  s('mig-dst',db.result||(db.running?`Running: ${db.phase}`:'Not started'));
+  s('mig-dpct',(db.progress||0)+'%'); s('mig-dphase',db.phase||'');
+  const dp=document.getElementById('mig-dprog');
+  if(dp){dp.style.width=(db.progress||0)+'%';dp.className=`prog-fill violet ${db.running?'active':''}`;}
+  s('mig-dsize',db.dump_size_human||'—'); s('mig-dgtid',db.gtid_purged||'—');
+}
+
+function pageLiveSync() {
+  return `
+    <div class="page-header"><div class="page-title">Live Sync Status</div><div class="page-sub">Real-time file and database replication monitoring</div></div>
+    <div class="two-col">
+      <div class="card"><div class="panel-title">${ICONS.activity} File Sync</div>
+        <div class="kv-row"><span class="kv-key">lsyncd</span><span class="kv-val" id="ls-lsyncd">—</span></div>
+        <div class="kv-row"><span class="kv-key">Events today</span><span class="kv-val" id="ls-events">—</span></div>
+        <div class="kv-row"><span class="kv-key">SSH</span><span class="kv-val" id="ls-ssh">—</span></div>
+        <div class="kv-row"><span class="kv-key">Source disk</span><span class="kv-val" id="ls-src-pct">—</span></div>
+        <div class="prog-track" style="margin:6px 0 10px"><div class="prog-fill cyan" id="ls-src-bar" style="width:0%"></div></div>
+        <div class="kv-row"><span class="kv-key">Target disk</span><span class="kv-val" id="ls-tgt-pct">—</span></div>
+        <div class="prog-track" style="margin:6px 0"><div class="prog-fill violet" id="ls-tgt-bar" style="width:0%"></div></div>
+      </div>
+      <div class="card"><div class="panel-title">${ICONS.database} DB Replication</div>
+        <div class="kv-row"><span class="kv-key">IO Thread</span><span class="kv-val" id="ls-io">—</span></div>
+        <div class="kv-row"><span class="kv-key">SQL Thread</span><span class="kv-val" id="ls-sql">—</span></div>
+        <div class="kv-row"><span class="kv-key">Lag</span><span class="kv-val cyan" id="ls-lag">—</span></div>
+        <div class="kv-row"><span class="kv-key">pt-heartbeat</span><span class="kv-val" id="ls-hbeat">—</span></div>
+        <div class="kv-row"><span class="kv-key">Status</span><span class="kv-val" id="ls-status">—</span></div>
+      </div>
+    </div>
+    <div class="panel"><div class="panel-title">${ICONS.activity} 24h Activity (DB Lag)</div>
+      <div class="chart-wrap"><canvas id="liveSyncChart"></canvas></div>
+    </div>`;
+}
+function initLiveSync(){ loadLiveSync(); pollTimers['liveSync']=setInterval(loadLiveSync,15000); }
+async function loadLiveSync(){
+  const [lsyncd,disk,conn,dbH]=await Promise.all([
+    apiGet('/api/lsyncd/status'),apiGet('/api/health/disk'),
+    apiGet('/api/connectivity/state'),apiGet('/api/db/health'),
+  ]);
+  const s=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
+  s('ls-lsyncd',lsyncd.status||'—'); s('ls-events',lsyncd.event_count??'—');
+  s('ls-ssh',conn.connected?'Connected':'Unknown');
+  if(disk.source){s('ls-src-pct',disk.source.pct+'%');const b=document.getElementById('ls-src-bar');if(b)b.style.width=disk.source.pct+'%';}
+  if(disk.target){s('ls-tgt-pct',disk.target.pct+'%');const b=document.getElementById('ls-tgt-bar');if(b)b.style.width=disk.target.pct+'%';}
+  s('ls-io',dbH.io_running||'—'); s('ls-sql',dbH.sql_running||'—');
+  s('ls-lag',dbH.lag_seconds!=null?dbH.lag_seconds+'s':'—'); s('ls-status',dbH.status||'—');
+  const hbeat=await apiGet('/api/db/pt/heartbeat-status');
+  s('ls-hbeat',hbeat.active?'Running':'Stopped');
+  const hist=await apiGet('/api/db/health/history?n=288');
+  const canvas=document.getElementById('liveSyncChart');
+  if(canvas) drawLineChart(canvas,(hist&&hist.history||[]).map(h=>h.lag_seconds),'#22d3ee');
+}
+
+function pageDrReadiness() {
+  return `
+    <div class="page-header"><div class="page-title">DR Readiness</div><div class="page-sub">Disaster Recovery readiness score and RPO/RTO estimates</div></div>
+    <div class="two-col">
+      <div class="card" style="display:flex;flex-direction:column;align-items:center">
+        <div class="panel-title" style="width:100%">${ICONS.shield} DR Readiness Score</div>
+        <div class="dr-ring">
+          <canvas id="drRingCanvas" width="140" height="140"></canvas>
+          <div class="dr-ring-val"><div class="dr-score-num" id="drScore">—</div><div class="dr-score-label">/ 100</div></div>
+        </div>
+        <div id="drDeductions" style="width:100%;margin-top:12px"></div>
+      </div>
+      <div class="card">
+        <div class="panel-title">${ICONS.clock} RPO / RTO Estimate</div>
+        <div class="kv-row"><span class="kv-key">File RPO</span><span class="kv-val" id="dr-file-rpo">—</span></div>
+        <div class="kv-row"><span class="kv-key">DB RPO (lag)</span><span class="kv-val" id="dr-db-rpo">—</span></div>
+        <div class="kv-row"><span class="kv-key">Combined RPO</span><span class="kv-val cyan" id="dr-rpo">—</span></div>
+        <div class="divider"></div>
+        <div class="panel-title">${ICONS.zap} RTO Breakdown</div>
+        <div class="kv-row"><span class="kv-key">Stop lsyncd</span><span class="kv-val">~10s</span></div>
+        <div class="kv-row"><span class="kv-key">Stop DB replica</span><span class="kv-val">~5s</span></div>
+        <div class="kv-row"><span class="kv-key">Verify GTID lag=0</span><span class="kv-val">~30s</span></div>
+        <div class="kv-row"><span class="kv-key">Disable read_only</span><span class="kv-val">~5s</span></div>
+        <div class="kv-row"><span class="kv-key">Update config.php</span><span class="kv-val">~60s</span></div>
+        <div class="kv-row"><span class="kv-key">DNS cutover</span><span class="kv-val">~300s (manual)</span></div>
+        <div class="divider"></div>
+        <div class="kv-row"><span class="kv-key" style="color:var(--text)">Total RTO</span><span class="kv-val cyan">~7 minutes</span></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="flex-row between" style="margin-bottom:12px">
+        <div class="panel-title">${ICONS.check} DR Readiness Checklist</div>
+        <button class="btn btn-ghost btn-sm" onclick="loadDrReadiness()">${ICONS.refresh} Refresh</button>
+      </div>
+      <div id="drChecklist"><div class="empty-state">Loading...</div></div>
+    </div>`;
+}
+function initDrReadiness(){ loadDrReadiness(); pollTimers['drReadiness']=setInterval(loadDrReadiness,30000); }
+async function loadDrReadiness(){
+  const [pub,lsyncd,ssh,disk,dbH,hbeat]=await Promise.all([
+    apiGet('/api/public/status'),apiGet('/api/lsyncd/status'),apiGet('/api/health/ssh'),
+    apiGet('/api/health/disk'),apiGet('/api/db/health'),apiGet('/api/db/pt/heartbeat-status'),
+  ]);
+  const score=pub.dr_readiness?.score??100;
+  const rpo=pub.dr_readiness?.rpo_seconds??0;
+  const dbLag=dbH.lag_seconds??0;
+  const canvas=document.getElementById('drRingCanvas');
+  if(canvas){
+    const color=score>=90?'#34d399':score>=70?'#fbbf24':'#f87171';
+    drawRing(canvas,score,color);
+    const scoreEl=document.getElementById('drScore');
+    if(scoreEl){scoreEl.textContent=score;scoreEl.style.color=color;scoreEl.style.textShadow=`0 0 20px ${color}`;}
+  }
+  const s=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
+  s('dr-file-rpo',lsyncd.status==='active'?'< 60s':'lsyncd not running');
+  s('dr-db-rpo',dbLag?`${dbLag}s replication lag`:'~0s');
+  s('dr-rpo',rpo?`${rpo}s`:'< 60s');
+  const dedEl=document.getElementById('drDeductions');
+  const deductions=[];
+  if(dbH.status==='error') deductions.push({txt:'DB replication error',pts:-40});
+  else if(dbH.status==='stopped') deductions.push({txt:'DB replication stopped',pts:-30});
+  else if(dbH.status==='lagging') deductions.push({txt:'DB replication lagging >5min',pts:-15});
+  if(lsyncd.status!=='active') deductions.push({txt:'lsyncd not running',pts:-10});
+  if(dedEl) dedEl.innerHTML=deductions.length?deductions.map(d=>`
+    <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:12px">
+      <span style="color:var(--text3)">${d.txt}</span><span style="color:var(--red)">${d.pts}</span>
+    </div>`).join(''):`<div style="color:var(--green);font-size:12px;text-align:center">No deductions</div>`;
+  const checks=[
+    {name:'lsyncd running',ok:lsyncd.status==='active'},
+    {name:'SSH connectivity',ok:ssh.connected},
+    {name:'Source disk OK (< 85%)',ok:(disk.source?.pct||0)<85},
+    {name:'Target disk OK (< 85%)',ok:(disk.target?.pct||0)<85},
+    {name:'MySQL IO thread ON',ok:dbH.io_running==='Yes'},
+    {name:'MySQL SQL thread ON',ok:dbH.sql_running==='Yes'},
+    {name:'DB lag < 60s',ok:(dbH.lag_seconds??999)<60},
+    {name:'pt-heartbeat running',ok:hbeat.active},
+  ];
+  const clEl=document.getElementById('drChecklist');
+  if(clEl) clEl.innerHTML=`<div class="check-list">${checks.map(c=>`
+    <div class="check-item ${c.ok?'pass':'fail'}">
+      <div class="check-icon">${c.ok?ICONS.check:ICONS.x}</div>
+      <div class="check-name">${c.name}</div>
+    </div>`).join('')}</div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── INTEGRATIONS: EXTERNAL ACCESS PAGE ──
+// ═══════════════════════════════════════════════════════════════
+function pageExtAccess() {
+  return `
+    <div class="page-header">
+      <div class="page-title">External Access</div>
+      <div class="page-sub">Expose this dashboard securely for remote monitoring and OpenClaw integration</div>
+    </div>
+
+    <!-- Cloudflare Tunnel -->
+    <div class="panel" id="cf-panel">
+      <div class="flex-row between" style="margin-bottom:16px">
+        <div class="panel-title">${ICONS.globe} Cloudflare Tunnel</div>
+        <span class="badge badge-gray" id="cf-status-badge">Unknown</span>
+      </div>
+      <div class="banner banner-info" style="margin-bottom:14px">
+        <div class="banner-icon">${ICONS.link}</div>
+        <div class="banner-text">
+          <div class="banner-title">Zero-config HTTPS tunnel</div>
+          <div class="banner-body">Exposes this dashboard via a free trycloudflare.com domain. No account required. Ideal for temporary remote access.</div>
+        </div>
+      </div>
+      <div class="form-grid" style="margin-bottom:12px">
+        <div class="form-row">
+          <label class="form-label">Tunnel Token (optional — leave empty for quick tunnel)</label>
+          <input id="cf-token" class="input" type="password" placeholder="cloudflared tunnel token (for named tunnels)"/>
+        </div>
+        <div class="form-row">
+          <label class="form-label">Local Port</label>
+          <input id="cf-port" class="input" type="number" value="8099" style="max-width:120px"/>
+        </div>
+      </div>
+      <div class="kv-row"><span class="kv-key">Public URL</span><span class="kv-val" id="cf-url" style="color:var(--cyan);font-family:var(--mono);font-size:12px">—</span></div>
+      <div id="cf-result" style="margin-top:12px"></div>
+      <div style="margin-top:14px;display:flex;gap:8px">
+        <button class="btn btn-primary btn-sm" onclick="cfStart()">Start Tunnel</button>
+        <button class="btn btn-ghost btn-sm" onclick="cfStop()">Stop Tunnel</button>
+        <button class="btn btn-ghost btn-sm" onclick="cfRefresh()">Refresh Status</button>
+      </div>
+    </div>
+
+    <!-- Tailscale -->
+    <div class="panel" id="ts-panel">
+      <div class="flex-row between" style="margin-bottom:16px">
+        <div class="panel-title">${ICONS.wifi} Tailscale</div>
+        <span class="badge badge-gray" id="ts-status-badge">Unknown</span>
+      </div>
+      <div class="banner banner-info" style="margin-bottom:14px">
+        <div class="banner-icon">${ICONS.link}</div>
+        <div class="banner-text">
+          <div class="banner-title">Private mesh VPN</div>
+          <div class="banner-body">Connects this server to your Tailscale network. Enables secure access from any device on your tailnet without exposing ports publicly.</div>
+        </div>
+      </div>
+      <div class="form-row" style="margin-bottom:12px">
+        <label class="form-label">Auth Key (from tailscale.com/settings/keys)</label>
+        <input id="ts-authkey" class="input" type="password" placeholder="tskey-auth-..."/>
+      </div>
+      <div class="kv-row"><span class="kv-key">Tailscale IP</span><span class="kv-val" id="ts-ip" style="font-family:var(--mono)">—</span></div>
+      <div class="kv-row"><span class="kv-key">Hostname</span><span class="kv-val" id="ts-hostname" style="font-family:var(--mono)">—</span></div>
+      <div class="kv-row"><span class="kv-key">Backend state</span><span class="kv-val" id="ts-state">—</span></div>
+      <div id="ts-result" style="margin-top:12px"></div>
+      <div style="margin-top:14px;display:flex;gap:8px">
+        <button class="btn btn-primary btn-sm" onclick="tsUp()">Connect (tailscale up)</button>
+        <button class="btn btn-ghost btn-sm" onclick="tsDown()">Disconnect</button>
+        <button class="btn btn-ghost btn-sm" onclick="tsRefresh()">Refresh Status</button>
+      </div>
+    </div>
+
+    <!-- SSH Tunnel -->
+    <div class="panel">
+      <div class="panel-title">${ICONS.terminal} SSH Reverse Tunnel</div>
+      <div class="banner banner-warn" style="margin-bottom:14px">
+        <div class="banner-icon">${ICONS.alert}</div>
+        <div class="banner-text">
+          <div class="banner-title">Client-side only</div>
+          <div class="banner-body">SSH tunnels must be initiated from the remote machine. Copy the command below and run it on your laptop or bastion host.</div>
+        </div>
+      </div>
+      <div class="form-grid" style="margin-bottom:12px">
+        <div class="form-row"><label class="form-label">Jump/Bastion Host</label><input id="ssh-jump" class="input" placeholder="user@bastion.example.com"/></div>
+        <div class="form-row"><label class="form-label">Remote Port (on bastion)</label><input id="ssh-rport" class="input" type="number" value="9099"/></div>
+        <div class="form-row"><label class="form-label">Local Dashboard Port</label><input id="ssh-lport" class="input" type="number" value="8099"/></div>
+      </div>
+      <div class="form-row">
+        <label class="form-label">Generated SSH Tunnel Command</label>
+        <div class="code-block" id="sshTunnelCmd" style="font-size:11px">ssh -N -R 9099:localhost:8099 user@bastion.example.com</div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button class="btn btn-ghost btn-sm" onclick="generateSSHCmd()">Generate Command</button>
+        <button class="btn btn-ghost btn-sm" onclick="copySSHCmd()">Copy Command</button>
+      </div>
+    </div>
+
+    <!-- Webhook Push -->
+    <div class="panel">
+      <div class="flex-row between" style="margin-bottom:16px">
+        <div class="panel-title">${ICONS.send} Webhook Push</div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost btn-sm" onclick="testWebhook()">Test Now</button>
+          <button class="btn btn-primary btn-sm" onclick="saveWebhookConfig()">Save</button>
+        </div>
+      </div>
+      <div class="banner banner-info" style="margin-bottom:14px">
+        <div class="banner-icon">${ICONS.send}</div>
+        <div class="banner-text">
+          <div class="banner-title">Push DR status to external endpoint</div>
+          <div class="banner-body">Sends a signed JSON payload with DR readiness score, replication status, and file sync health to any HTTP endpoint. Useful for Slack, PagerDuty, or custom dashboards.</div>
+        </div>
+      </div>
+      <div class="form-grid">
+        <div class="form-row"><label class="form-label">Webhook URL</label><input id="wh-url" class="input" placeholder="https://hooks.slack.com/..."/></div>
+        <div class="form-row"><label class="form-label">Secret (HMAC-SHA256 signing)</label><input id="wh-secret" class="input" type="password" placeholder="leave empty to disable signing"/></div>
+        <div class="form-row"><label class="form-label">Push Interval (seconds)</label><input id="wh-interval" class="input" type="number" value="300" style="max-width:120px"/></div>
+        <div class="form-row"><label class="form-label">Events to Push</label>
+          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:6px">
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px"><input type="checkbox" id="wh-ev-status" checked/> status_change</label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px"><input type="checkbox" id="wh-ev-error" checked/> error</label>
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px"><input type="checkbox" id="wh-ev-heartbeat"/> heartbeat</label>
+          </div>
+        </div>
+      </div>
+      <div id="wh-result" style="margin-top:12px"></div>
+    </div>`;
+}
+
+function initExtAccess(){
+  cfRefresh(); tsRefresh();
+  loadWebhookConfig();
+  updateSSHCmd();
+  document.getElementById('ssh-jump')?.addEventListener('input',updateSSHCmd);
+  document.getElementById('ssh-rport')?.addEventListener('input',updateSSHCmd);
+  document.getElementById('ssh-lport')?.addEventListener('input',updateSSHCmd);
+}
+
+function updateSSHCmd(){
+  const jump=document.getElementById('ssh-jump')?.value||'user@bastion.example.com';
+  const rport=document.getElementById('ssh-rport')?.value||'9099';
+  const lport=document.getElementById('ssh-lport')?.value||'8099';
+  const cmd=`ssh -N -R ${rport}:localhost:${lport} ${jump}`;
+  const el=document.getElementById('sshTunnelCmd');if(el) el.textContent=cmd;
+}
+function generateSSHCmd(){ updateSSHCmd(); }
+function copySSHCmd(){const el=document.getElementById('sshTunnelCmd');if(el){navigator.clipboard.writeText(el.textContent);showToast('SSH command copied!','ok');}}
+
+async function cfRefresh(){
+  const r=await apiGet('/api/integrations/cloudflare/status');
+  const badge=document.getElementById('cf-status-badge');
+  const urlEl=document.getElementById('cf-url');
+  if(badge){
+    const running=r.running||false;
+    badge.className=`badge ${running?'badge-green':'badge-gray'}`;
+    badge.textContent=running?'Running':'Stopped';
+  }
+  if(urlEl) urlEl.textContent=r.url||'—';
+}
+async function cfStart(){
+  const token=document.getElementById('cf-token')?.value||'';
+  const port=parseInt(document.getElementById('cf-port')?.value||'8099');
+  const r=await apiPost('/api/integrations/cloudflare/start',{token,port});
+  const el=document.getElementById('cf-result');
+  if(el) el.innerHTML=`<div class="banner ${r.ok?'banner-ok':'banner-err'}"><div class="banner-icon">${r.ok?ICONS.check:ICONS.alert}</div>
+    <div class="banner-text"><div class="banner-title">${r.ok?'Tunnel started':'Start failed'}</div>
+    <div class="banner-body">${escHtml(r.url||r.message||r.error||'')}</div></div></div>`;
+  showToast(r.ok?'Cloudflare tunnel started':'Tunnel start failed: '+(r.error||''),r.ok?'ok':'err');
+  if(r.ok) setTimeout(cfRefresh,2000);
+}
+async function cfStop(){
+  const r=await apiPost('/api/integrations/cloudflare/stop',{});
+  showToast(r.ok?'Tunnel stopped':r.error||'Failed',r.ok?'ok':'err');
+  if(r.ok) cfRefresh();
+}
+
+async function tsRefresh(){
+  const r=await apiGet('/api/integrations/tailscale/status');
+  const badge=document.getElementById('ts-status-badge');
+  const s=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
+  if(badge){
+    const up=r.backend_state==='Running'||false;
+    badge.className=`badge ${up?'badge-green':'badge-gray'}`;
+    badge.textContent=r.backend_state||'Unknown';
+  }
+  s('ts-ip',r.ip||'—'); s('ts-hostname',r.hostname||'—'); s('ts-state',r.backend_state||'—');
+}
+async function tsUp(){
+  const key=document.getElementById('ts-authkey')?.value||'';
+  const r=await apiPost('/api/integrations/tailscale/up',{auth_key:key});
+  const el=document.getElementById('ts-result');
+  if(el) el.innerHTML=`<div class="banner ${r.ok?'banner-ok':'banner-err'}"><div class="banner-icon">${r.ok?ICONS.check:ICONS.alert}</div>
+    <div class="banner-text"><div class="banner-title">${r.ok?'Tailscale connected':'Tailscale failed'}</div>
+    <div class="banner-body">${escHtml(r.message||r.error||'')}</div></div></div>`;
+  showToast(r.ok?'Tailscale connected':r.error||'Failed',r.ok?'ok':'err');
+  if(r.ok) setTimeout(tsRefresh,2000);
+}
+async function tsDown(){
+  const r=await apiPost('/api/integrations/tailscale/down',{});
+  showToast(r.ok?'Tailscale disconnected':r.error||'Failed',r.ok?'ok':'err');
+  if(r.ok) tsRefresh();
+}
+
+async function loadWebhookConfig(){
+  const r=await apiGet('/api/integrations/webhook/config');
+  if(!r.config) return;
+  const set=(id,val)=>{const el=document.getElementById(id);if(el&&val!=null)el.value=val;};
+  set('wh-url',r.config.url); set('wh-interval',r.config.interval_seconds||300);
+  const events=r.config.events||[];
+  const setChk=(id,val)=>{const el=document.getElementById(id);if(el)el.checked=val;};
+  setChk('wh-ev-status',events.includes('status_change'));
+  setChk('wh-ev-error',events.includes('error'));
+  setChk('wh-ev-heartbeat',events.includes('heartbeat'));
+}
+async function saveWebhookConfig(){
+  const events=[];
+  if(document.getElementById('wh-ev-status')?.checked) events.push('status_change');
+  if(document.getElementById('wh-ev-error')?.checked) events.push('error');
+  if(document.getElementById('wh-ev-heartbeat')?.checked) events.push('heartbeat');
+  const body={url:document.getElementById('wh-url')?.value||'',secret:document.getElementById('wh-secret')?.value||'',interval_seconds:parseInt(document.getElementById('wh-interval')?.value||'300'),events};
+  const r=await apiPost('/api/integrations/webhook/config',body);
+  const el=document.getElementById('wh-result');
+  if(el) el.innerHTML=`<div class="banner ${r.ok?'banner-ok':'banner-err'}"><div class="banner-icon">${r.ok?ICONS.check:ICONS.alert}</div>
+    <div class="banner-text"><div class="banner-title">${r.ok?'Webhook config saved':'Save failed'}</div>
+    <div class="banner-body">${escHtml(r.message||r.error||'')}</div></div></div>`;
+  showToast(r.ok?'Webhook saved':r.error,'ok');
+}
+async function testWebhook(){
+  showToast('Sending test webhook...','info');
+  const r=await apiPost('/api/integrations/webhook/test',{});
+  const el=document.getElementById('wh-result');
+  if(el) el.innerHTML=`<div class="banner ${r.ok?'banner-ok':'banner-err'}"><div class="banner-icon">${r.ok?ICONS.check:ICONS.alert}</div>
+    <div class="banner-text"><div class="banner-title">${r.ok?'Webhook test sent!':'Test failed'}</div>
+    <div class="banner-body">${escHtml(r.message||r.error||'')}</div></div></div>`;
+  showToast(r.ok?'Test webhook sent!':r.error||'Failed',r.ok?'ok':'err');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── INTEGRATIONS: NOTIFICATIONS PAGE ──
+// ═══════════════════════════════════════════════════════════════
+function pageNotifications() {
+  return `
+    <div class="page-header">
+      <div class="page-title">Notifications</div>
+      <div class="page-sub">Configure alert channels for DR events</div>
+    </div>
+
+    <!-- Telegram -->
+    <div class="panel">
+      <div class="flex-row between" style="margin-bottom:14px">
+        <div class="panel-title">${ICONS.send} Telegram</div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost btn-sm" onclick="testNotif('telegram')">Test</button>
+          <button class="btn btn-primary btn-sm" onclick="saveNotif('telegram')">Save</button>
+        </div>
+      </div>
+      <div class="form-grid">
+        <div class="form-row"><label class="form-label">Bot Token</label><input id="notif-tg-token" class="input" type="password" placeholder="123456789:AABBccDDeeFFeGG..."/></div>
+        <div class="form-row"><label class="form-label">Chat ID</label><input id="notif-tg-chat" class="input" placeholder="-100123456789"/></div>
+      </div>
+      <div id="notif-tg-result" style="margin-top:10px"></div>
+    </div>
+
+    <!-- Slack -->
+    <div class="panel">
+      <div class="flex-row between" style="margin-bottom:14px">
+        <div class="panel-title">${ICONS.bell} Slack</div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost btn-sm" onclick="testNotif('slack')">Test</button>
+          <button class="btn btn-primary btn-sm" onclick="saveNotif('slack')">Save</button>
+        </div>
+      </div>
+      <div class="form-row">
+        <label class="form-label">Webhook URL</label>
+        <input id="notif-slack-url" class="input" placeholder="https://hooks.slack.com/services/..."/>
+      </div>
+      <div id="notif-slack-result" style="margin-top:10px"></div>
+    </div>
+
+    <!-- Discord -->
+    <div class="panel">
+      <div class="flex-row between" style="margin-bottom:14px">
+        <div class="panel-title">${ICONS.bell} Discord</div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost btn-sm" onclick="testNotif('discord')">Test</button>
+          <button class="btn btn-primary btn-sm" onclick="saveNotif('discord')">Save</button>
+        </div>
+      </div>
+      <div class="form-row">
+        <label class="form-label">Webhook URL</label>
+        <input id="notif-discord-url" class="input" placeholder="https://discord.com/api/webhooks/..."/>
+      </div>
+      <div id="notif-discord-result" style="margin-top:10px"></div>
+    </div>
+
+    <!-- Email -->
+    <div class="panel">
+      <div class="flex-row between" style="margin-bottom:14px">
+        <div class="panel-title">${ICONS.send} Email (SMTP)</div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-ghost btn-sm" onclick="testNotif('email')">Test</button>
+          <button class="btn btn-primary btn-sm" onclick="saveNotif('email')">Save</button>
+        </div>
+      </div>
+      <div class="form-grid">
+        <div class="form-row"><label class="form-label">SMTP Host</label><input id="notif-smtp-host" class="input" placeholder="smtp.gmail.com"/></div>
+        <div class="form-row"><label class="form-label">Port</label><input id="notif-smtp-port" class="input" type="number" value="587"/></div>
+        <div class="form-row"><label class="form-label">Username</label><input id="notif-smtp-user" class="input" placeholder="alerts@yourorg.com"/></div>
+        <div class="form-row"><label class="form-label">Password</label><div class="pw-wrap"><input id="notif-smtp-pass" class="input" type="password"/><button class="pw-eye" onclick="togglePw('notif-smtp-pass')">${ICONS.eye}</button></div></div>
+        <div class="form-row"><label class="form-label">From Address</label><input id="notif-smtp-from" class="input" placeholder="moodle-dr@yourorg.com"/></div>
+        <div class="form-row"><label class="form-label">To Address(es)</label><input id="notif-smtp-to" class="input" placeholder="admin@yourorg.com, ops@yourorg.com"/></div>
+      </div>
+      <div id="notif-email-result" style="margin-top:10px"></div>
+    </div>
+
+    <!-- Event Triggers -->
+    <div class="panel">
+      <div class="panel-title">${ICONS.zap} Alert Triggers</div>
+      <div class="check-list">
+        <div class="check-item"><div class="check-cb checked" id="trig-repl-error"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg></div><div class="check-name">Replication error or thread stopped</div></div>
+        <div class="check-item"><div class="check-cb checked" id="trig-lag"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg></div><div class="check-name">Replication lag exceeds 300s</div></div>
+        <div class="check-item"><div class="check-cb checked" id="trig-ssh"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg></div><div class="check-name">SSH connectivity lost</div></div>
+        <div class="check-item"><div class="check-cb" id="trig-disk"><div></div></div><div class="check-name">Disk usage exceeds 85%</div></div>
+        <div class="check-item"><div class="check-cb" id="trig-heartbeat"><div></div></div><div class="check-name">Daily heartbeat (proof of life)</div></div>
+      </div>
+    </div>`;
+}
+
+function initNotifications(){ loadNotifConfigs(); }
+async function loadNotifConfigs(){
+  const r=await apiGet('/api/integrations/notifications/config');
+  if(!r.config) return;
+  const set=(id,val)=>{const el=document.getElementById(id);if(el&&val!=null)el.value=val;};
+  const tg=r.config.telegram||{};
+  set('notif-tg-token',tg.token?'••••••••':''); set('notif-tg-chat',tg.chat_id||'');
+  const sl=r.config.slack||{};
+  set('notif-slack-url',sl.webhook_url||'');
+  const dc=r.config.discord||{};
+  set('notif-discord-url',dc.webhook_url||'');
+  const em=r.config.email||{};
+  set('notif-smtp-host',em.smtp_host||'');set('notif-smtp-port',em.smtp_port||587);
+  set('notif-smtp-user',em.username||'');set('notif-smtp-from',em.from_addr||'');
+  set('notif-smtp-to',(em.to_addrs||[]).join(', '));
+}
+async function saveNotif(channel){
+  let body={channel};
+  if(channel==='telegram'){body.token=document.getElementById('notif-tg-token')?.value||'';body.chat_id=document.getElementById('notif-tg-chat')?.value||'';}
+  else if(channel==='slack'){body.webhook_url=document.getElementById('notif-slack-url')?.value||'';}
+  else if(channel==='discord'){body.webhook_url=document.getElementById('notif-discord-url')?.value||'';}
+  else if(channel==='email'){
+    body.smtp_host=document.getElementById('notif-smtp-host')?.value||'';
+    body.smtp_port=parseInt(document.getElementById('notif-smtp-port')?.value||'587');
+    body.username=document.getElementById('notif-smtp-user')?.value||'';
+    body.password=document.getElementById('notif-smtp-pass')?.value||'';
+    body.from_addr=document.getElementById('notif-smtp-from')?.value||'';
+    body.to_addrs=(document.getElementById('notif-smtp-to')?.value||'').split(',').map(s=>s.trim()).filter(Boolean);
+  }
+  const r=await apiPost('/api/integrations/notifications/config',body);
+  const el=document.getElementById(`notif-${channel==='email'?'email':channel==='telegram'?'tg':channel}-result`);
+  if(el) el.innerHTML=`<div class="banner ${r.ok?'banner-ok':'banner-err'}"><div class="banner-icon">${r.ok?ICONS.check:ICONS.alert}</div>
+    <div class="banner-text"><div class="banner-title">${r.ok?channel+' saved':'Save failed'}</div>
+    <div class="banner-body">${escHtml(r.message||r.error||'')}</div></div></div>`;
+  showToast(r.ok?`${channel} saved`:r.error||'Failed',r.ok?'ok':'err');
+}
+async function testNotif(channel){
+  showToast(`Testing ${channel}...`,'info');
+  const r=await apiPost(`/api/integrations/notifications/test/${channel}`,{});
+  const key=channel==='telegram'?'tg':channel==='email'?'email':channel;
+  const el=document.getElementById(`notif-${key}-result`);
+  if(el) el.innerHTML=`<div class="banner ${r.ok?'banner-ok':'banner-err'}"><div class="banner-icon">${r.ok?ICONS.check:ICONS.alert}</div>
+    <div class="banner-text"><div class="banner-title">${r.ok?'Test message sent!':'Test failed'}</div>
+    <div class="banner-body">${escHtml(r.message||r.error||'')}</div></div></div>`;
+  showToast(r.ok?`${channel} test sent!`:r.error||'Failed',r.ok?'ok':'err');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── INTEGRATIONS: OPENCLAW PAGE ──
+// ═══════════════════════════════════════════════════════════════
+function pageOpenClaw() {
+  return `
+    <div class="page-header">
+      <div class="page-title">OpenClaw API</div>
+      <div class="page-sub">Machine-readable DR status API for AI agents and external integrations</div>
+    </div>
+
+    <!-- Public Status Preview -->
+    <div class="panel">
+      <div class="flex-row between" style="margin-bottom:12px">
+        <div class="panel-title">${ICONS.globe} Public Status Endpoint</div>
+        <button class="btn btn-ghost btn-sm" onclick="fetchPublicStatus()">${ICONS.refresh} Fetch</button>
+      </div>
+      <div class="kv-row"><span class="kv-key">URL</span><span class="kv-val" style="font-family:var(--mono);color:var(--cyan);font-size:12px">/api/public/status</span></div>
+      <div class="kv-row"><span class="kv-key">Auth</span><span class="kv-val">None required (public read-only)</span></div>
+      <div class="kv-row"><span class="kv-key">SSE Stream</span><span class="kv-val" style="font-family:var(--mono);color:var(--cyan);font-size:12px">/api/public/stream</span></div>
+      <div class="kv-row"><span class="kv-key">Prometheus</span><span class="kv-val" style="font-family:var(--mono);color:var(--cyan);font-size:12px">/metrics</span></div>
+      <div id="pubStatusPreview" style="margin-top:12px"><div class="empty-state">Click Fetch to preview</div></div>
+    </div>
+
+    <!-- API Tokens -->
+    <div class="panel">
+      <div class="flex-row between" style="margin-bottom:14px">
+        <div class="panel-title">${ICONS.key} API Tokens</div>
+        <button class="btn btn-primary btn-sm" onclick="showCreateToken()">${ICONS.plus} Create Token</button>
+      </div>
+      <div class="banner banner-info" style="margin-bottom:14px">
+        <div class="banner-icon">${ICONS.shield}</div>
+        <div class="banner-text">
+          <div class="banner-title">Token-based authentication</div>
+          <div class="banner-body">Use <code style="font-family:var(--mono);background:var(--bg3);padding:1px 5px;border-radius:3px">X-API-Token: &lt;token&gt;</code> header for authenticated endpoints. Tokens are stored hashed — save them immediately after creation.</div>
+        </div>
+      </div>
+      <div id="createTokenForm" style="display:none;margin-bottom:16px">
+        <div class="form-grid">
+          <div class="form-row"><label class="form-label">Token Name</label><input id="new-token-name" class="input" placeholder="e.g. openclaw-agent, monitoring-bot"/></div>
+          <div class="form-row"><label class="form-label">Expires In</label>
+            <select id="new-token-expires" class="select">
+              <option value="">Never</option>
+              <option value="7">7 days</option>
+              <option value="30">30 days</option>
+              <option value="90">90 days</option>
+              <option value="365">1 year</option>
+            </select>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button class="btn btn-primary btn-sm" onclick="createToken()">Create</button>
+          <button class="btn btn-ghost btn-sm" onclick="hideCreateToken()">Cancel</button>
+        </div>
+        <div id="newTokenDisplay" style="margin-top:12px"></div>
+      </div>
+      <div class="tbl-wrap" id="tokenList"><div class="empty-state">Loading tokens...</div></div>
+    </div>
+
+    <!-- Skill File -->
+    <div class="panel">
+      <div class="panel-title">${ICONS.cpu} OpenClaw Skill File</div>
+      <div class="banner banner-ok" style="margin-bottom:12px">
+        <div class="banner-icon">${ICONS.check}</div>
+        <div class="banner-text">
+          <div class="banner-title">Download the OpenClaw skill definition</div>
+          <div class="banner-body">This JSON file defines the tool schema for use with Perplexity AI, ChatGPT plugins, or any OpenAI-compatible function-calling integration.</div>
+        </div>
+      </div>
+      <div class="form-row">
+        <label class="form-label">Your Dashboard Base URL</label>
+        <input id="oc-base-url" class="input" placeholder="https://your-tunnel-url.trycloudflare.com" style="max-width:500px"/>
+      </div>
+      <div style="margin-top:12px;display:flex;gap:8px">
+        <button class="btn btn-cyan btn-sm" onclick="downloadSkillFile()">${ICONS.download} Download skill.json</button>
+        <button class="btn btn-ghost btn-sm" onclick="previewSkillFile()">Preview</button>
+      </div>
+      <div id="skillPreview" style="margin-top:12px"></div>
+    </div>
+
+    <!-- Usage Example -->
+    <div class="panel">
+      <div class="panel-title">${ICONS.activity} Usage Example</div>
+      <div class="code-block" style="font-size:10px">${escHtml('# Fetch DR status\ncurl https://your-url/api/public/status\n\n# Stream real-time events (SSE)\ncurl -N https://your-url/api/public/stream\n\n# Prometheus metrics\ncurl https://your-url/metrics\n\n# Authenticated request\ncurl -H "X-API-Token: <token>" https://your-url/api/public/status')}</div>
+    </div>`;
+}
+
+function initOpenClaw(){ loadTokenList(); }
+
+async function fetchPublicStatus(){
+  const el=document.getElementById('pubStatusPreview');
+  if(el) el.innerHTML='<div class="empty-state">Fetching...</div>';
+  const r=await apiGet('/api/public/status');
+  if(!el) return;
+  el.innerHTML=`<div class="code-block" style="font-size:10px;max-height:240px;overflow-y:auto">${escHtml(JSON.stringify(r,null,2))}</div>`;
+}
+
+function showCreateToken(){const el=document.getElementById('createTokenForm');if(el) el.style.display='block';}
+function hideCreateToken(){const el=document.getElementById('createTokenForm');if(el) el.style.display='none';}
+
+async function createToken(){
+  const name=document.getElementById('new-token-name')?.value||'';
+  const expiresIn=document.getElementById('new-token-expires')?.value||'';
+  if(!name){showToast('Enter a token name','warn');return;}
+  const body={name};
+  if(expiresIn) body.expires_days=parseInt(expiresIn);
+  const r=await apiPost('/api/integrations/openclaw/tokens',body);
+  const el=document.getElementById('newTokenDisplay');
+  if(r.ok&&r.token){
+    if(el) el.innerHTML=`<div class="banner banner-ok"><div class="banner-icon">${ICONS.key}</div>
+      <div class="banner-text"><div class="banner-title">Token created — save it now!</div>
+      <div class="banner-body" style="font-family:var(--mono);font-size:11px;word-break:break-all;margin-top:4px">${escHtml(r.token)}</div>
+      <div style="margin-top:8px"><button class="btn btn-ghost btn-sm" onclick="navigator.clipboard.writeText('${escHtml(r.token)}');showToast('Token copied!','ok')">Copy Token</button></div>
+      <div style="font-size:11px;color:var(--amber);margin-top:6px">This token will not be shown again.</div></div></div>`;
+    loadTokenList();
+  } else {
+    if(el) el.innerHTML=`<div class="banner banner-err"><div class="banner-icon">${ICONS.alert}</div><div class="banner-text"><div class="banner-title">Failed</div><div class="banner-body">${escHtml(r.error||'Unknown error')}</div></div></div>`;
+  }
+}
+
+async function loadTokenList(){
+  const r=await apiGet('/api/integrations/openclaw/tokens');
+  const el=document.getElementById('tokenList');if(!el)return;
+  if(!r.tokens||r.tokens.length===0){el.innerHTML='<div class="empty-state">No API tokens. Create one to get started.</div>';return;}
+  el.innerHTML=`<table><thead><tr><th>Name</th><th>Created</th><th>Last Used</th><th>Expires</th><th>Action</th></tr></thead>
+    <tbody>${r.tokens.map(t=>`<tr>
+      <td style="font-weight:500">${escHtml(t.name)}</td>
+      <td>${timeAgo(t.created_at)||'—'}</td>
+      <td>${t.last_used_at?timeAgo(t.last_used_at):'Never'}</td>
+      <td>${t.expires_at?timeAgo(t.expires_at):'Never'}</td>
+      <td><button class="btn btn-danger btn-sm" onclick="revokeToken('${escHtml(t.id)}')">${ICONS.trash} Revoke</button></td>
+    </tr>`).join('')}</tbody></table>`;
+}
+
+async function revokeToken(id){
+  if(!confirm('Revoke this token? This cannot be undone.'))return;
+  const r=await apiPost(`/api/integrations/openclaw/tokens/${id}/revoke`,{});
+  showToast(r.ok?'Token revoked':r.error||'Failed',r.ok?'ok':'err');
+  if(r.ok) loadTokenList();
+}
+
+async function previewSkillFile(){
+  const base=document.getElementById('oc-base-url')?.value||window.location.origin;
+  const r=await apiGet(`/api/integrations/openclaw/skill-file/download?base_url=${encodeURIComponent(base)}`);
+  const el=document.getElementById('skillPreview');
+  if(el) el.innerHTML=`<div class="code-block" style="font-size:10px;max-height:300px;overflow-y:auto">${escHtml(JSON.stringify(r,null,2))}</div>`;
+}
+
+async function downloadSkillFile(){
+  const base=document.getElementById('oc-base-url')?.value||window.location.origin;
+  window.open(`/api/integrations/openclaw/skill-file/download?base_url=${encodeURIComponent(base)}`, '_blank');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── APP INIT ──
+// ═══════════════════════════════════════════════════════════════
+async function initApp() {
+  initWelcomeCanvas();
+  try {
+    const r=await apiGet('/api/setup/mode');
+    appState.setupMode=r.setup_mode||'';
+    appState.welcomeSeen=r.welcome_seen||false;
+    appState.fileSetupComplete=r.file_setup_complete||false;
+    appState.dbSetupComplete=r.db_setup_complete||false;
+  } catch(e){}
+
+  if(appState.welcomeSeen||(appState.fileSetupComplete||appState.dbSetupComplete)){
+    document.getElementById('welcome-screen').style.display='none';
+    document.getElementById('appShell').style.display='flex';
+    const firstPage=(appState.fileSetupComplete||appState.dbSetupComplete)?'dashboard':'welcome';
+    showPage(firstPage);
+    startClock();
+    startTopbarPolling();
+  } else {
+    // Show welcome screen
+  }
+}
+
+document.addEventListener('DOMContentLoaded', initApp);
+</script>
+</body>
+</html>
