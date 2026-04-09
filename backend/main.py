@@ -216,6 +216,22 @@ def lsyncd_status():
     }
 
 
+@app.get("/api/lsyncd/config")
+def lsyncd_get_config():
+    """Return the current generated lsyncd.conf.lua content for inspection."""
+    conf_path = Path("/etc/lsyncd/lsyncd.conf.lua")
+    exclude_path = Path("/etc/lsyncd/moodledata.exclude")
+    cfg = conf_path.read_text() if conf_path.exists() else None
+    excl = exclude_path.read_text() if exclude_path.exists() else None
+    return {
+        "config_path":    str(conf_path),
+        "config_exists":  conf_path.exists(),
+        "config_content": cfg,
+        "exclude_path":   str(exclude_path),
+        "exclude_content": excl,
+    }
+
+
 @app.post("/api/lsyncd/start")
 def lsyncd_start():
     r = run_cmd(["systemctl", "start", "lsyncd"])

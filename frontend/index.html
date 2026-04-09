@@ -1401,6 +1401,18 @@ function pageFileSettings() {
       <button class="btn btn-primary" onclick="saveFileSettings()">Save Settings</button>
       <button class="btn btn-ghost" onclick="testSSH()">Test Connection</button>
     </div></div>
+    <!-- Generated lsyncd config viewer -->
+    <div class="panel">
+      <div class="flex-row between" style="margin-bottom:12px">
+        <div>
+          <div class="panel-title">${ICONS.file} Generated lsyncd Config</div>
+          <div style="font-size:12px;color:var(--text4);margin-top:2px">/etc/lsyncd/lsyncd.conf.lua — verify user and identityFile are correct</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="loadLsyncdConfig()">${ICONS.refresh} Refresh</button>
+      </div>
+      <div id="lsyncdConfigView"><div class="empty-state">Loading…</div></div>
+    </div>
+
     <div class="panel danger-zone"><div class="danger-zone-title">${ICONS.alert} Danger Zone</div>
     <div class="flex-row" style="gap:8px">
       <button class="btn btn-danger btn-sm" onclick="rerunConfigure()">Re-run Configure</button>
@@ -1414,6 +1426,33 @@ function initFileSettings(){
     set('fs-ip',f.target_ip);set('fs-user',f.sync_user);set('fs-key',f.ssh_key_path);
     set('fs-src',f.src_path);set('fs-tgt',f.target_path);
   });
+  loadLsyncdConfig();
+}
+async function loadLsyncdConfig(){
+  const el=document.getElementById('lsyncdConfigView'); if(!el) return;
+  const r=await apiGet('/api/lsyncd/config');
+  if(!r.config_exists){
+    el.innerHTML=`<div class="empty-state" style="color:var(--amber)">Config file not found at ${escHtml(r.config_path)} — run Auto-Configure to generate it.</div>`;
+    return;
+  }
+  // Highlight user and identityFile lines so they’re easy to spot
+  const lines = (r.config_content||'').split('\n').map(line=>{
+    let cls='';
+    if(/user\s*=/.test(line))      cls='ok';
+    if(/identityFile\s*=/.test(line)) cls='ok';
+    if(/host\s*=/.test(line))      cls='warn';
+    return `<div class="log-line ${cls}">${escHtml(line)}</div>`;
+  }).join('');
+  el.innerHTML=`
+    <div style="font-size:11px;color:var(--text4);margin-bottom:6px">
+      <span style="color:var(--green)">Green</span> = SSH user &amp; key — verify these match your setup. 
+      <span style="color:var(--amber)">Amber</span> = host IP.
+    </div>
+    <div class="log-box" style="max-height:320px">${lines}</div>
+    ${r.exclude_content?`
+    <div style="margin-top:12px;font-size:12px;color:var(--text4);margin-bottom:4px">${escHtml(r.exclude_path)}</div>
+    <div class="log-box" style="max-height:120px">${escHtml(r.exclude_content).split('\n').map(l=>`<div class="log-line">${l}</div>`).join('')}</div>`:''}
+  `;
 }
 async function saveFileSettings(){
   const g=id=>{const el=document.getElementById(id);return el?el.value:'';};
