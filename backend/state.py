@@ -29,6 +29,23 @@ rsync_job: dict = {
     "bytes_sent_human":   "",
 }
 
+# ── Rsync dry-run validation job state ───────────────────────────────────────
+rsync_validate_job: dict = {
+    "running":             False,
+    "started_at":         None,
+    "finished_at":        None,
+    "last_result":        None,   # "in_sync" | "out_of_sync" | "error" | None
+    "returncode":         None,
+    "files_total":        0,      # Number of files (source)
+    "files_transferred":  0,      # Files that WOULD be transferred (out-of-sync)
+    "files_deleted":      0,      # Files that WOULD be deleted on target
+    "bytes_would_send":   0,
+    "bytes_would_send_human": "",
+    "total_size_human":   "",
+    "output":             [],     # last N lines of rsync --stats output
+    "error":              "",
+}
+
 # ── Callback: set by main.py so watchdog can trigger rsync without import loop ─
 # Signature: async trigger_rsync(trigger: str) -> bool
 trigger_rsync_fn = None

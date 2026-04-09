@@ -996,9 +996,26 @@ async function startGTIDReplication() {
 function pageVerify() {
   return `
     <div class="page-header"><div class="page-title">Verify Setup</div><div class="page-sub">Run verification checks before going live</div></div>
+
     <div class="panel"><div class="panel-title">${ICONS.check} Verification Checks</div>
-    <div id="verifyChecks"><div class="empty-state">Click Run Verification to begin</div></div>
-    <div style="margin-top:16px"><button class="btn btn-primary" onclick="runVerification()">Run Verification</button></div></div>
+      <div id="verifyChecks"><div class="empty-state">Click Run Verification to begin</div></div>
+      <div style="margin-top:16px"><button class="btn btn-primary" onclick="runVerification()">Run Verification</button></div>
+    </div>
+
+    <!-- File Sync Validation (dry-run) -->
+    <div class="panel">
+      <div class="flex-row between" style="margin-bottom:14px">
+        <div>
+          <div class="panel-title">${ICONS.shield} File Sync Validation</div>
+          <div style="font-size:12px;color:var(--text4);margin-top:2px">Dry-run rsync — confirms source ↔ target are in sync before going live</div>
+        </div>
+        <button class="btn btn-primary btn-sm" id="validateBtn" onclick="runValidation()">Run Validation</button>
+      </div>
+      <div id="validateResult"><span style="color:var(--text4);font-size:13px">Run validation to confirm all files copied correctly before switching traffic.</span></div>
+      <div id="validateMetrics" class="metric-row" style="margin-top:12px"></div>
+      <div id="validateLog"></div>
+    </div>
+
     <div class="flex-row between">
       <button class="btn btn-ghost" onclick="showPage('bulk_sync')">&larr; Back</button>
       <button class="btn btn-cyan btn-lg" id="goDashBtn" onclick="goToDashboard()" disabled>Go to Dashboard ${ICONS.arrow}</button>
@@ -1110,6 +1127,30 @@ async function stopLsyncd(){const r=await apiPost('/api/lsyncd/stop',{});showToa
 function pageTransfers() {
   return `
     <div class="page-header"><div class="page-title">Transfer History</div><div class="page-sub">rsync session log and partial file tracking</div></div>
+
+    <!-- ── File Sync Validation ──────────────────────────────────────────── -->
+    <div class="panel" id="validatePanel">
+      <div class="flex-row between" style="margin-bottom:14px">
+        <div>
+          <div class="panel-title">${ICONS.shield} File Sync Validation</div>
+          <div style="font-size:12px;color:var(--text4);margin-top:2px">Dry-run rsync — checks source ↔ target drift without transferring anything</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn btn-ghost btn-sm" onclick="loadValidateStatus()">${ICONS.refresh} Refresh</button>
+          <button class="btn btn-primary btn-sm" id="validateBtn" onclick="runValidation()">Run Validation</button>
+        </div>
+      </div>
+
+      <!-- Result badge row -->
+      <div id="validateResult" style="margin-bottom:14px"></div>
+
+      <!-- Metrics -->
+      <div id="validateMetrics" class="metric-row" style="margin-bottom:14px"></div>
+
+      <!-- Progress / log -->
+      <div id="validateLog"></div>
+    </div>
+
     <div class="panel">
       <div class="flex-row between" style="margin-bottom:12px">
         <div class="panel-title">${ICONS.bar} Transfer Sessions</div>
@@ -1129,7 +1170,7 @@ function pageTransfers() {
       <div id="xferStats" class="metric-row"></div>
     </div>`;
 }
-function initTransfers(){ loadTransfers(); loadPartials(); loadTransferStats(); }
+function initTransfers(){ loadTransfers(); loadPartials(); loadTransferStats(); loadValidateStatus(); }
 async function loadTransfers(){
   const r=await apiGet('/api/transfers?limit=50');const el=document.getElementById('xferTable');if(!el)return;
   if(!r.sessions||r.sessions.length===0){el.innerHTML='<div class="empty-state">No transfers recorded</div>';return;}
@@ -1152,6 +1193,105 @@ async function loadTransferStats(){
     <div class="mc"><div class="mc-label">Total Files</div><div class="mc-val muted">${(r.total_files_transferred||0).toLocaleString()}</div></div>`;
 }
 async function resumeTransfer(){const r=await apiPost('/api/transfers/resume',{});showToast(r.ok?'Resume triggered':r.error||'Failed',r.ok?'ok':'err');}
+
+// ── Validation ───────────────────────────────────────────────────────────
+let _validatePoll = null;
+
+async function loadValidateStatus() {
+  const r = await apiGet('/api/rsync/validate');
+  _renderValidation(r);
+}
+
+async function runValidation() {
+  const btn = document.getElementById('validateBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Running…'; }
+  const r = await apiPost('/api/rsync/validate', {});
+  if (!r.ok) {
+    showToast(r.detail || r.error || 'Failed to start validation', 'err');
+    if (btn) { btn.disabled = false; btn.textContent = 'Run Validation'; }
+    return;
+  }
+  showToast('Validation started — this may take several minutes for large datasets', 'ok');
+  // Poll every 4 seconds while running
+  if (_validatePoll) clearInterval(_validatePoll);
+  _validatePoll = setInterval(async () => {
+    const s = await apiGet('/api/rsync/validate');
+    _renderValidation(s);
+    if (!s.running) {
+      clearInterval(_validatePoll);
+      _validatePoll = null;
+      const b = document.getElementById('validateBtn');
+      if (b) { b.disabled = false; b.textContent = 'Run Validation'; }
+    }
+  }, 4000);
+}
+
+function _renderValidation(r) {
+  if (!r) return;
+
+  const resEl = document.getElementById('validateResult');
+  const metEl = document.getElementById('validateMetrics');
+  const logEl = document.getElementById('validateLog');
+  const btn   = document.getElementById('validateBtn');
+
+  // ─ Button state
+  if (btn) {
+    btn.disabled    = r.running;
+    btn.textContent = r.running ? 'Running…' : 'Run Validation';
+  }
+
+  // ─ Result badge
+  if (resEl) {
+    if (!r.last_result && !r.running) {
+      resEl.innerHTML = `<span style="color:var(--text4);font-size:13px">No validation run yet — click <strong>Run Validation</strong> to check sync status.</span>`;
+    } else if (r.running) {
+      resEl.innerHTML = `<span class="badge badge-blue" style="font-size:13px;padding:6px 14px">⏳ Validation in progress — walking ${(r.files_total||0).toLocaleString()} files…</span>`;
+    } else if (r.last_result === 'in_sync') {
+      resEl.innerHTML = `<span class="badge badge-green" style="font-size:14px;padding:7px 16px">✔ Source and target are IN SYNC — 0 files would be transferred</span>`;
+    } else if (r.last_result === 'out_of_sync') {
+      resEl.innerHTML = `<span class="badge badge-amber" style="font-size:14px;padding:7px 16px">⚠ OUT OF SYNC — ${r.files_transferred.toLocaleString()} file${r.files_transferred===1?'':'s'} would be transferred${r.files_deleted>0?', '+r.files_deleted+' deleted':''}</span>`;
+    } else if (r.last_result === 'error') {
+      resEl.innerHTML = `<span class="badge badge-red" style="font-size:14px;padding:7px 16px">✘ Validation error — ${escHtml(r.error||'rsync failed')}</span>`;
+    }
+  }
+
+  // ─ Metrics row
+  if (metEl && (r.last_result || r.running)) {
+    const fin = r.finished_at ? new Date(r.finished_at).toLocaleTimeString() : '';
+    const dur = (r.started_at && r.finished_at)
+      ? Math.round((new Date(r.finished_at)-new Date(r.started_at))/1000)+'s'
+      : r.running ? 'running…' : '—';
+    metEl.innerHTML = `
+      <div class="mc"><div class="mc-label">Total Files (src)</div>
+        <div class="mc-val muted">${(r.files_total||0).toLocaleString()}</div></div>
+      <div class="mc"><div class="mc-label">Would Transfer</div>
+        <div class="mc-val ${r.files_transferred>0?'amber':'green'}">${(r.files_transferred||0).toLocaleString()}</div></div>
+      <div class="mc"><div class="mc-label">Would Delete</div>
+        <div class="mc-val ${r.files_deleted>0?'red':'green'}">${(r.files_deleted||0).toLocaleString()}</div></div>
+      <div class="mc"><div class="mc-label">Data to Send</div>
+        <div class="mc-val cyan">${r.bytes_would_send_human||'0 B'}</div></div>
+      <div class="mc"><div class="mc-label">Total Src Size</div>
+        <div class="mc-val muted">${r.total_size_human||'—'}</div></div>
+      <div class="mc"><div class="mc-label">Duration</div>
+        <div class="mc-val muted">${dur}</div></div>
+      ${fin?`<div class="mc"><div class="mc-label">Last Run</div><div class="mc-val muted" style="font-size:12px">${fin}</div></div>`:''}`;
+  }
+
+  // ─ Raw stats log (collapsible)
+  if (logEl && r.output && r.output.length > 0) {
+    // Show only stats lines (lines containing ":" from --stats output)
+    const statsLines = r.output.filter(l =>
+      /Number of|Total (file|transferred|bytes)|Literal|Matched|File list/i.test(l)
+    );
+    if (statsLines.length > 0) {
+      logEl.innerHTML = `
+        <details style="margin-top:4px">
+          <summary style="cursor:pointer;font-size:12px;color:var(--text4);margin-bottom:6px">rsync --stats output (${statsLines.length} lines)</summary>
+          <div class="log-box">${statsLines.map(l=>`<div class="log-line">${escHtml(l)}</div>`).join('')}</div>
+        </details>`;
+    }
+  }
+}
 
 function pageConnectivity() {
   return `

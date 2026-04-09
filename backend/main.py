@@ -413,6 +413,153 @@ async def _trigger_rsync_job(trigger: str = "operator") -> bool:
     return success
 
 
+# ── Rsync dry-run validation ("are source and target in sync?") ────────────────
+
+@app.get("/api/rsync/validate")
+def get_validate_status():
+    """Return current state of the dry-run validation job."""
+    return state.rsync_validate_job
+
+
+@app.post("/api/rsync/validate")
+async def trigger_validate(background_tasks: BackgroundTasks):
+    """Start a dry-run rsync --stats pass to measure source ↔ target drift."""
+    _sync_state_from_file()
+    if state.rsync_validate_job["running"]:
+        raise HTTPException(409, detail="Validation already running")
+    background_tasks.add_task(_run_rsync_validate)
+    return {"ok": True, "message": "Validation started"}
+
+
+async def _run_rsync_validate():
+    """
+    Runs:  rsync -aHAXxn --delete --stats
+               -e "ssh -i <key> -o BatchMode=yes -o IdentitiesOnly=yes"
+               <src> <user>@<ip>:<tgt>
+    Parses the --stats output and stores result in state.rsync_validate_job.
+    """
+    _sync_state_from_file()
+
+    state.rsync_validate_job.update({
+        "running":             True,
+        "started_at":         datetime.now().isoformat(),
+        "finished_at":        None,
+        "last_result":        None,
+        "returncode":         None,
+        "files_total":        0,
+        "files_transferred":  0,
+        "files_deleted":      0,
+        "bytes_would_send":   0,
+        "bytes_would_send_human": "",
+        "total_size_human":   "",
+        "output":             [],
+        "error":              "",
+    })
+
+    cmd = [
+        "rsync",
+        "-aHAXxn",                         # -n = dry run
+        "--delete",
+        "--stats",
+        "--human-readable",
+        "--timeout=600",
+        "-e",
+        (
+            f"ssh -i {state.SSH_KEY_PATH}"
+            " -o BatchMode=yes"
+            " -o IdentitiesOnly=yes"
+            " -o StrictHostKeyChecking=accept-new"
+        ),
+        state.SOURCE_PATH,
+        f"{state.AZURE_VM_USER}@{state.AZURE_VM_IP}:{state.TARGET_PATH}",
+    ]
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+
+        async for raw in proc.stdout:
+            line = raw.decode(errors="replace").strip()
+            if not line:
+                continue
+            state.rsync_validate_job["output"].append(line)
+            if len(state.rsync_validate_job["output"]) > 200:
+                state.rsync_validate_job["output"] = \
+                    state.rsync_validate_job["output"][-200:]
+
+        await proc.wait()
+        rc = proc.returncode
+
+    except Exception as exc:
+        state.rsync_validate_job.update({
+            "running":     False,
+            "finished_at": datetime.now().isoformat(),
+            "last_result": "error",
+            "error":       str(exc),
+        })
+        return
+
+    # ── Parse --stats output ──────────────────────────────────────────
+    output_text = "\n".join(state.rsync_validate_job["output"])
+
+    def _extract_int(pattern: str) -> int:
+        import re
+        m = re.search(pattern, output_text)
+        return int(m.group(1).replace(",", "")) if m else 0
+
+    def _extract_str(pattern: str) -> str:
+        import re
+        m = re.search(pattern, output_text)
+        return m.group(1).strip() if m else ""
+
+    files_total       = _extract_int(r"Number of files:\s+([\d,]+)")
+    files_transferred = _extract_int(r"Number of regular files transferred:\s+([\d,]+)")
+    # Count deleted entries from output lines containing "deleting "
+    files_deleted     = sum(1 for l in state.rsync_validate_job["output"]
+                            if l.startswith("deleting "))
+    bytes_would_send  = _extract_int(r"Total transferred file size:\s+([\d,]+)")
+    total_size_human  = _extract_str(r"Total file size:\s+([\d,.]+ [KMGTP]?[Bb])")
+
+    # Determine sync status
+    if rc not in (0, 24):   # 24 = vanished source files, still OK
+        result = "error"
+        error_msg = f"rsync exited with code {rc}"
+    elif files_transferred == 0 and files_deleted == 0:
+        result = "in_sync"
+        error_msg = ""
+    else:
+        result = "out_of_sync"
+        error_msg = ""
+
+    state.rsync_validate_job.update({
+        "running":             False,
+        "finished_at":        datetime.now().isoformat(),
+        "last_result":        result,
+        "returncode":         rc,
+        "files_total":        files_total,
+        "files_transferred":  files_transferred,
+        "files_deleted":      files_deleted,
+        "bytes_would_send":   bytes_would_send,
+        "bytes_would_send_human": _human_bytes(bytes_would_send),
+        "total_size_human":   total_size_human,
+        "error":              error_msg,
+    })
+
+
+def _human_bytes(n: int) -> str:
+    """Convert bytes to human-readable string."""
+    if n == 0:
+        return "0 B"
+    for unit in ["B", "KB", "MB", "GB", "TB"]:
+        if n < 1024:
+            return f"{n:.1f} {unit}"
+        n /= 1024
+    return f"{n:.1f} PB"
+
+
 # ── Health endpoints ───────────────────────────────────────────────────────────
 
 @app.get("/api/health/ssh")
