@@ -1,4 +1,4 @@
-# Moodle DR Dashboard
+# Moodle DR
 
 **Production-grade Disaster Recovery platform for Moodle LMS** — unified file replication, MySQL 8.x GTID warm-standby replication, real-time DR readiness monitoring, and one-click failover guidance.
 
