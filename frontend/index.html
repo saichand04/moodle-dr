@@ -55,8 +55,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--s
 .sb-logo-mark svg{width:14px;height:14px;stroke:white}
 .sb-logo-text{font-size:13px;font-weight:700;color:var(--text);white-space:nowrap;opacity:1;transition:opacity .2s}
 .sidebar.collapsed .sb-logo-text{opacity:0;width:0;overflow:hidden}
-.sb-collapse-btn{margin-left:auto;width:22px;height:22px;border:1px solid var(--border2);background:var(--bg3);cursor:pointer;color:var(--text2);display:flex;align-items:center;justify-content:center;border-radius:50%;transition:all .2s;flex-shrink:0}
-.sb-collapse-btn:hover{color:var(--cyan);border-color:var(--cyan-bd);background:var(--bg2)}
+.sb-collapse-btn{position:absolute;top:16px;right:-13px;width:26px;height:26px;border:1px solid var(--border2);background:var(--bg1);cursor:pointer;color:var(--text2);display:flex;align-items:center;justify-content:center;border-radius:50%;transition:right .25s ease,background .2s,border-color .2s;flex-shrink:0;z-index:100;box-shadow:2px 0 8px rgba(0,0,0,.4)}
+.sb-collapse-btn:hover{color:var(--cyan);border-color:var(--cyan);background:var(--bg2)}
 .sb-nav{flex:1;overflow-y:auto;padding:8px 0;scrollbar-width:none}
 .sb-nav::-webkit-scrollbar{display:none}
 .sb-group-label{font-size:9px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--text4);padding:8px 14px 4px;white-space:nowrap;opacity:1;transition:opacity .2s}
@@ -191,8 +191,8 @@ canvas.chart{width:100%;height:100%}
 .banner-warn .banner-title{color:var(--amber)} .banner-err .banner-title{color:var(--red)}
 .banner-info .banner-title{color:var(--violet)} .banner-ok .banner-title{color:var(--green)}
 .dr-ring-wrap{display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;padding:16px 0}
-.dr-ring{position:relative;width:240px;height:240px;flex-shrink:0}
-.dr-ring canvas{position:absolute;top:-20px;left:-20px;overflow:visible}
+.dr-ring{position:relative;width:260px;height:260px;flex-shrink:0}
+.dr-ring canvas{position:absolute;top:0;left:0;width:100%;height:100%}
 .dr-ring-val{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
 .dr-score-num{font-size:44px;font-weight:700;font-family:var(--mono);line-height:1}
 .dr-score-label{font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.1em;margin-top:4px}
@@ -272,11 +272,11 @@ canvas.chart{width:100%;height:100%}
 </div>
 <!-- MAIN APP SHELL -->
 <div class="shell" id="appShell" style="display:none">
-  <aside class="sidebar" id="sidebar">
+  <aside class="sidebar" id="sidebar" style="position:relative;overflow:visible">
+    <button class="sb-collapse-btn" id="sbCollapseBtn" onclick="toggleSidebar()" title="Toggle sidebar"><svg id="sbChevronIcon" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg></button>
     <div class="sb-header">
       <div class="sb-logo-mark"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></div>
       <div class="sb-logo-text">Moodle DR</div>
-      <button class="sb-collapse-btn" id="sbCollapseBtn" onclick="toggleSidebar()" title="Collapse sidebar"><svg id="sbChevronIcon" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg></button>
     </div>
     <div class="sb-nav" id="sbNav"></div>
   </aside>
@@ -442,17 +442,49 @@ function drawLineChart(canvas, data, color='#22d3ee') {
 }
 
 function drawRing(canvas, pct, color) {
+  const dpr = window.devicePixelRatio || 1;
+  const SIZE = 260;
+  canvas.width  = SIZE * dpr;
+  canvas.height = SIZE * dpr;
+  canvas.style.width  = SIZE + 'px';
+  canvas.style.height = SIZE + 'px';
   const ctx = canvas.getContext('2d');
-  const W = canvas.offsetWidth||280, H = canvas.offsetHeight||280;
-  canvas.width=W; canvas.height=H;
-  const cx=W/2, cy=H/2, r=Math.min(W,H)/2-10;
-  ctx.clearRect(0,0,W,H);
-  ctx.strokeStyle='rgba(255,255,255,.06)'; ctx.lineWidth=10;
-  ctx.beginPath(); ctx.arc(cx,cy,r,0,2*Math.PI); ctx.stroke();
-  ctx.shadowBlur=16; ctx.shadowColor=color; ctx.strokeStyle=color;
-  ctx.lineWidth=10; ctx.lineCap='round';
-  ctx.beginPath(); ctx.arc(cx,cy,r,-Math.PI/2,-Math.PI/2+(pct/100)*2*Math.PI); ctx.stroke();
-  ctx.shadowBlur=0;
+  ctx.scale(dpr, dpr);
+  const cx = SIZE/2, cy = SIZE/2;
+  // Inset radius so glow has room — 40px padding all round
+  const r = SIZE/2 - 36;
+  const startAngle = -Math.PI/2;
+  const endAngle   = startAngle + (pct/100) * 2 * Math.PI;
+  ctx.clearRect(0, 0, SIZE, SIZE);
+  // Track (background arc)
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, 2*Math.PI);
+  ctx.strokeStyle = 'rgba(255,255,255,.07)';
+  ctx.lineWidth = 12;
+  ctx.stroke();
+  // Glow pass 1 — soft outer halo
+  ctx.save();
+  ctx.shadowBlur  = 32;
+  ctx.shadowColor = color;
+  ctx.strokeStyle = color;
+  ctx.lineWidth   = 12;
+  ctx.lineCap     = 'round';
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, startAngle, endAngle);
+  ctx.stroke();
+  ctx.restore();
+  // Glow pass 2 — bright core
+  ctx.save();
+  ctx.shadowBlur  = 14;
+  ctx.shadowColor = color;
+  ctx.strokeStyle = color;
+  ctx.lineWidth   = 7;
+  ctx.lineCap     = 'round';
+  ctx.globalAlpha = 0.9;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, startAngle, endAngle);
+  ctx.stroke();
+  ctx.restore();
 }
 
 // ── STATUS PILLS ──────────────────────────────────────────────────────────────
@@ -1131,22 +1163,36 @@ function initDashboard(){ loadDashboard(); pollTimers['dashboard']=setInterval(l
 async function loadDashboard() {
   try {
     const [status,logs,disk,wdog,lsyncd]=await Promise.all([
-      apiGet('/api/rsync/status'),apiGet('/api/logs?lines=100'),
+      apiGet('/api/rsync/status'),apiGet('/api/logs?lines=500'),
       apiGet('/api/health/disk'),apiGet('/api/connectivity/state'),apiGet('/api/lsyncd/status'),
     ]);
     const s=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
     s('d-files',(status.files_transferred||0).toLocaleString());
     s('d-speed',status.speed||'—'); s('d-prog',(status.progress||0)+'%');
-    // Last Sync: read most recent timestamp from lsyncd log lines
+    // Last Sync: find most recent timestamp from lsyncd log (format: "Mon Apr 13 01:24:36 2026 ...").
+    // Parse manually as LOCAL time to avoid JS treating the string as UTC.
     const allLines=(logs.lines||[]);
     let lastSyncTs=null;
-    // lsyncd log format: "Mon Apr 13 01:24:36 2026 Normal: ..."
-    const tsRx=/^(\w{3}\s+\w{3}\s+\d+\s+[\d:]+\s+\d{4})/;
+    const MONTHS={Jan:0,Feb:1,Mar:2,Apr:3,May:4,Jun:5,Jul:6,Aug:7,Sep:8,Oct:9,Nov:10,Dec:11};
+    const tsRx=/^\w{3}\s+(\w{3})\s+(\d+)\s+(\d{2}):(\d{2}):(\d{2})\s+(\d{4})/;
     for(let i=allLines.length-1;i>=0;i--){
       const m=allLines[i].match(tsRx);
-      if(m){try{const d=new Date(m[1]);if(!isNaN(d)){lastSyncTs=d;break;}}catch(e){}}
+      if(m){
+        const [,mon,day,hh,mm,ss,yr]=m;
+        if(MONTHS[mon]!==undefined){
+          lastSyncTs=new Date(+yr,MONTHS[mon],+day,+hh,+mm,+ss);
+          if(!isNaN(lastSyncTs)) break;
+        }
+      }
     }
-    s('d-last',lastSyncTs?timeAgo(lastSyncTs.toISOString()):'—');
+    if(lastSyncTs){
+      // Show actual time + date so there's no ambiguity
+      const fmtTime=lastSyncTs.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
+      const fmtDate=lastSyncTs.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+      s('d-last',`${fmtTime} · ${fmtDate}`);
+    } else {
+      s('d-last','—');
+    }
     // rsync card
     s('ds-rsync',status.running?'Running':'Idle');
     // lsyncd dedicated card
@@ -2016,7 +2062,7 @@ function pageDrReadiness() {
         <div class="panel-title">${ICONS.shield} DR Readiness Score</div>
         <div class="dr-ring-wrap">
           <div class="dr-ring">
-            <canvas id="drRingCanvas" width="280" height="280"></canvas>
+            <canvas id="drRingCanvas" width="260" height="260"></canvas>
             <div class="dr-ring-val"><div class="dr-score-num" id="drScore">—</div><div class="dr-score-label" id="drScoreMax">/ 100</div></div>
           </div>
         </div>
