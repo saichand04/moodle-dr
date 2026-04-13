@@ -145,6 +145,7 @@ def parse_df(raw: str) -> Optional[dict]:
         return None
     try:
         return {
+            "path":     parts[5] if len(parts) > 5 else "",
             "used_gb":  int(parts[2].rstrip("G")),
             "avail_gb": int(parts[3].rstrip("G")),
             "pct":      int(parts[4].rstrip("%")),
@@ -213,6 +214,7 @@ def lsyncd_status():
         "paused":       paused,
         "active_since": timestamp,
         "event_count":  events,
+        "config_path":  "/etc/lsyncd/lsyncd.conf.lua",
     }
 
 

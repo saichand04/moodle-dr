@@ -23,8 +23,8 @@
   --mono:'JetBrains Mono',ui-monospace,monospace;
   --sidebar-w:230px;--sidebar-c:54px;
 }
-html,body{height:100%;background-color:#07081200;background-image:url('bg.jpg');background-size:cover;background-position:top right;background-attachment:fixed;background-repeat:no-repeat;color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.5;overflow:hidden}
-#welcome-screen{position:fixed;inset:0;z-index:100;background-image:url('bg.jpg');background-size:cover;background-position:top right;background-repeat:no-repeat;display:flex;align-items:center;justify-content:center;opacity:1;transition:opacity .6s ease}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.5;overflow:hidden}
+#welcome-screen{position:fixed;inset:0;z-index:100;background:var(--bg);display:flex;align-items:center;justify-content:center;opacity:1;transition:opacity .6s ease}
 #welcome-screen.fade-out{opacity:0;pointer-events:none}
 #welcomeCanvas{position:absolute;inset:0;width:100%;height:100%}
 .wc-center{position:relative;z-index:2;text-align:center;max-width:880px;padding:40px 24px}
@@ -33,7 +33,7 @@ html,body{height:100%;background-color:#07081200;background-image:url('bg.jpg');
 .wc-sub{font-size:16px;color:var(--text2);margin-bottom:10px}
 .wc-desc{font-size:13px;color:var(--text3);max-width:480px;margin:0 auto 32px}
 .wc-cards{display:flex;gap:16px;justify-content:center;flex-wrap:wrap;margin-bottom:28px}
-.wc-card{background:rgba(19,21,42,.75);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--border2);border-radius:var(--r2);padding:24px 20px;width:246px;text-align:left;cursor:pointer;transition:border-color .2s,transform .2s;display:flex;flex-direction:column;gap:10px}
+.wc-card{background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r2);padding:24px 20px;width:246px;text-align:left;cursor:pointer;transition:border-color .2s,transform .2s;display:flex;flex-direction:column;gap:10px}
 .wc-card:hover{border-color:var(--violet-bd);transform:translateY(-2px)}
 .wc-card.featured{border-color:var(--cyan-bd);background:linear-gradient(135deg,rgba(34,211,238,.05),rgba(129,140,248,.05))}
 .wc-card-icon{width:36px;height:36px;border-radius:var(--r);display:flex;align-items:center;justify-content:center}
@@ -48,7 +48,7 @@ html,body{height:100%;background-color:#07081200;background-image:url('bg.jpg');
 .wc-skip{font-size:13px;color:var(--text3)}
 .wc-skip a{color:var(--text2);cursor:pointer;text-decoration:underline;text-decoration-color:var(--border2)}
 .shell{display:flex;height:100vh;overflow:hidden}
-.sidebar{width:var(--sidebar-w);background:rgba(10,11,20,.82);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;transition:width .25s ease;overflow:hidden}
+.sidebar{width:var(--sidebar-w);background:var(--bg1);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;transition:width .25s ease;overflow:hidden}
 .sidebar.collapsed{width:var(--sidebar-c)}
 .sb-header{display:flex;align-items:center;gap:10px;padding:16px 14px 12px;border-bottom:1px solid var(--border);min-height:57px}
 .sb-logo-mark{width:28px;height:28px;border-radius:var(--r);background:linear-gradient(135deg,var(--cyan),var(--violet));display:flex;align-items:center;justify-content:center;flex-shrink:0}
@@ -70,7 +70,7 @@ html,body{height:100%;background-color:#07081200;background-image:url('bg.jpg');
 .sb-tooltip{display:none;position:absolute;left:calc(var(--sidebar-c) + 8px);top:50%;transform:translateY(-50%);background:var(--bg3);border:1px solid var(--border2);border-radius:var(--r);padding:4px 10px;font-size:12px;white-space:nowrap;z-index:200;pointer-events:none}
 .sidebar.collapsed .sb-item:hover .sb-tooltip{display:block}
 .main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
-.topbar{height:57px;background:rgba(10,11,20,.78);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px;gap:16px;flex-shrink:0}
+.topbar{height:57px;background:var(--bg1);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px;gap:16px;flex-shrink:0}
 .topbar-breadcrumb{display:flex;align-items:center;gap:6px;font-size:13px;flex:1;min-width:0}
 .bc-root{color:var(--text3)} .bc-sep{color:var(--text4)} .bc-page{color:var(--text2);font-weight:500}
 .topbar-pills{display:flex;align-items:center;gap:8px;flex-shrink:0}
@@ -86,7 +86,7 @@ html,body{height:100%;background-color:#07081200;background-image:url('bg.jpg');
 .status-dot.unknown{background:var(--text4)}
 .topbar-clock{font-family:var(--mono);font-size:13px;color:var(--cyan);letter-spacing:.05em;flex-shrink:0}
 .topbar-date{font-size:11px;color:var(--text3);flex-shrink:0}
-.wiz-steps{background:rgba(10,11,20,.78);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border-bottom:1px solid var(--border);padding:0 24px;display:flex;align-items:center;overflow-x:auto;scrollbar-width:none;flex-shrink:0}
+.wiz-steps{background:var(--bg1);border-bottom:1px solid var(--border);padding:0 24px;display:flex;align-items:center;overflow-x:auto;scrollbar-width:none;flex-shrink:0}
 .wiz-steps::-webkit-scrollbar{display:none}
 .ws-item{display:flex;align-items:center;gap:8px;padding:12px 0;white-space:nowrap}
 .ws-num{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;border:1px solid var(--border2);color:var(--text3);background:var(--bg2);flex-shrink:0}
@@ -102,7 +102,7 @@ html,body{height:100%;background-color:#07081200;background-image:url('bg.jpg');
 .page-title{font-size:18px;font-weight:700;color:var(--text);margin-bottom:4px}
 .page-sub{font-size:13px;color:var(--text3)}
 .metric-row{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:20px}
-.mc{background:rgba(19,21,42,.80);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid var(--border);border-radius:var(--r2);padding:16px}
+.mc{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r2);padding:16px}
 .mc-label{font-size:11px;color:var(--text3);margin-bottom:6px;display:flex;align-items:center;gap:6px}
 .mc-val{font-size:28px;font-weight:700;letter-spacing:-.02em;font-family:var(--mono);line-height:1}
 .mc-val.cyan{color:var(--cyan);text-shadow:0 0 20px rgba(34,211,238,.4)}
@@ -110,12 +110,12 @@ html,body{height:100%;background-color:#07081200;background-image:url('bg.jpg');
 .mc-val.green{color:var(--green);text-shadow:0 0 20px rgba(52,211,153,.35)}
 .mc-val.amber{color:var(--amber)} .mc-val.red{color:var(--red)} .mc-val.muted{color:var(--text3)}
 .mc-sub{font-size:11px;color:var(--text3);margin-top:4px;font-family:var(--mono)}
-.panel{background:rgba(19,21,42,.80);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid var(--border);border-radius:var(--r2);padding:18px;margin-bottom:16px}
+.panel{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r2);padding:18px;margin-bottom:16px}
 .panel-title{font-size:12px;font-weight:600;color:var(--text2);margin-bottom:14px;display:flex;align-items:center;gap:8px;text-transform:uppercase;letter-spacing:.06em}
 .two-col{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
 .three-col{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px}
 @media(max-width:900px){.two-col,.three-col{grid-template-columns:1fr}}
-.card{background:rgba(19,21,42,.80);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid var(--border);border-radius:var(--r2);padding:18px}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r2);padding:18px}
 .btn{height:36px;padding:0 14px;border-radius:var(--r);font-size:13px;font-weight:500;cursor:pointer;border:1px solid;display:inline-flex;align-items:center;gap:6px;transition:all .15s;white-space:nowrap;font-family:var(--sans)}
 .btn:disabled{opacity:.45;cursor:not-allowed}
 .btn-sm{height:28px;padding:0 10px;font-size:12px} .btn-lg{height:42px;padding:0 20px;font-size:14px}
@@ -214,7 +214,7 @@ canvas.chart{width:100%;height:100%}
 .spinning{animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 /* Integration method cards */
-.int-method-card{background:rgba(19,21,42,.80);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:2px solid var(--border);border-radius:var(--r2);padding:20px;cursor:pointer;transition:border-color .2s;margin-bottom:12px}
+.int-method-card{background:var(--bg2);border:2px solid var(--border);border-radius:var(--r2);padding:20px;cursor:pointer;transition:border-color .2s;margin-bottom:12px}
 .int-method-card:hover{border-color:var(--border2)}
 .int-method-card.selected{border-color:var(--violet-bd);background:linear-gradient(135deg,var(--violet-bg),transparent)}
 .int-method-header{display:flex;align-items:center;gap:12px;margin-bottom:8px}
@@ -281,6 +281,9 @@ canvas.chart{width:100%;height:100%}
   </aside>
   <div class="main">
     <header class="topbar">
+      <button onclick="toggleSidebar()" style="background:none;border:none;cursor:pointer;color:var(--text3);padding:4px 6px;border-radius:var(--r);display:flex;align-items:center;flex-shrink:0;transition:color .15s,background .15s" onmouseover="this.style.background='var(--bg3)';this.style.color='var(--text)'" onmouseout="this.style.background='none';this.style.color='var(--text3)'" title="Toggle sidebar">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
       <div class="topbar-breadcrumb">
         <span class="bc-root">Moodle DR</span><span class="bc-sep">/</span><span class="bc-page" id="bcPage">Dashboard</span>
       </div>
@@ -664,20 +667,31 @@ function renderPage(key) {
 // ── TOPBAR POLLING ────────────────────────────────────────────────────────────
 async function pollTopbar() {
   try {
-    const [s,cfg]=await Promise.all([apiGet('/api/public/status'),apiGet('/api/setup/config').catch(()=>({}))]);
-    const sshOk=s.file_sync?.lsyncd_running!==false;
+    const [s,disk,lsyncd]=await Promise.all([
+      apiGet('/api/public/status'),
+      apiGet('/api/health/disk'),
+      apiGet('/api/lsyncd/status'),
+    ]);
+    // SSH pill — green if lsyncd active (means SSH tunnel alive), else check watchdog
+    const sshOk = lsyncd.status==='active' || s.file_sync?.lsyncd_running!==false;
     const dbSt=s.db_sync?.status;
     const dbOk=dbSt==='healthy'?true:(dbSt==='error'||dbSt==='stopped')?false:null;
     updateStatusPills(sshOk,dbOk);
-    // moodledata pill
+    // moodledata pill — green=disk<85%, amber=disk>85%, unknown=no data
     const mdEl=document.getElementById('moodledataPill');
     const mdLbl=document.getElementById('moodledataPillLabel');
-    const srcPath=cfg.src_path||cfg.file?.src_path||'';
     if(mdEl&&mdLbl){
-      const shortPath=srcPath?srcPath.replace(/\/$/,'').split('/').pop()||srcPath:'moodledata';
-      mdLbl.textContent=shortPath;
-      const diskOk=s.file_sync?.src_disk_pct?(s.file_sync.src_disk_pct<85):null;
-      const cls=diskOk===true?'healthy':diskOk===false?'warn':'unknown';
+      const srcPct=disk?.source?.pct;
+      const lsyncdRunning=lsyncd.status==='active';
+      // Label: show folder name from SOURCE_PATH if available
+      const srcPath=disk?.source?.path||'';
+      const shortPath=srcPath?srcPath.replace(/\/$/,'').split('/').pop()||'moodledata':'moodledata';
+      mdLbl.textContent=shortPath||'moodledata';
+      // Color: green if lsyncd running + disk ok, amber if disk>85%, red if lsyncd down
+      let cls='unknown';
+      if(lsyncdRunning && srcPct!=null && srcPct<85) cls='healthy';
+      else if(srcPct!=null && srcPct>=85) cls='warn';
+      else if(!lsyncdRunning && lsyncd.status) cls='warn';
       mdEl.className=`status-pill ${cls}`;
       const dot=mdEl.querySelector('.status-dot');
       if(dot) dot.className=`status-dot ${cls}`;
@@ -1104,15 +1118,17 @@ function pageDashboard() {
         </div>
       </div>
     </div>
-    <div class="card"><div class="panel-title">${ICONS.activity} Recent Transfer Log</div>
+    <div class="card"><div class="panel-title">${ICONS.activity} Recent Transfer Log
+      <span style="font-size:11px;color:var(--text3);text-transform:none;letter-spacing:0;margin-left:auto;font-weight:400">lsyncd log — last 20 events</span>
+    </div>
       <div class="tbl-wrap" id="dashTransferTable"><div class="empty-state">Loading...</div></div>
     </div>`;
 }
 function initDashboard(){ loadDashboard(); pollTimers['dashboard']=setInterval(loadDashboard,15000); }
 async function loadDashboard() {
   try {
-    const [status,transfers,disk,wdog,lsyncd]=await Promise.all([
-      apiGet('/api/rsync/status'),apiGet('/api/transfers?limit=10'),
+    const [status,logs,disk,wdog,lsyncd]=await Promise.all([
+      apiGet('/api/rsync/status'),apiGet('/api/logs?lines=100'),
       apiGet('/api/health/disk'),apiGet('/api/connectivity/state'),apiGet('/api/lsyncd/status'),
     ]);
     const s=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
@@ -1126,9 +1142,19 @@ async function loadDashboard() {
     const lEl=document.getElementById('ds-lsyncd');
     if(lEl){lEl.textContent=lStatus;lEl.className='kv-val '+(lStatus==='active'?'green':lStatus==='—'?'':'red');}
     s('ds-lsyncd-pid',lsyncd.pid||'—');
-    s('ds-lsyncd-uptime',lsyncd.uptime||'—');
-    s('ds-lsyncd-queue',lsyncd.events_queued!=null?lsyncd.events_queued:'—');
-    s('ds-lsyncd-cfg',lsyncd.config_path||'/etc/lsyncd/lsyncd.conf.lua');
+    // Compute human uptime from active_since timestamp
+    if(lsyncd.active_since){
+      try{
+        const since=new Date(lsyncd.active_since);
+        const diffS=Math.floor((Date.now()-since.getTime())/1000);
+        if(!isNaN(diffS)&&diffS>0){
+          const h=Math.floor(diffS/3600),m=Math.floor((diffS%3600)/60),sec=diffS%60;
+          s('ds-lsyncd-uptime',h?`${h}h ${m}m`:m?`${m}m ${sec}s`:`${sec}s`);
+        } else { s('ds-lsyncd-uptime',lsyncd.active_since||'—'); }
+      }catch(e){ s('ds-lsyncd-uptime',lsyncd.active_since||'—'); }
+    } else { s('ds-lsyncd-uptime','—'); }
+    s('ds-lsyncd-queue', lsyncd.event_count!=null?lsyncd.event_count:(lsyncd.events_queued!=null?lsyncd.events_queued:'—'));
+    s('ds-lsyncd-cfg','/etc/lsyncd/lsyncd.conf.lua');
     s('ds-ssh',wdog.connected?'Connected':'Unknown'); s('ds-result',status.last_result||'—');
     const pct=status.progress||0;
     const prog=document.getElementById('dashProg');
@@ -1138,15 +1164,58 @@ async function loadDashboard() {
     if(disk.target){s('ds-tgt-pct',`${disk.target.pct}% used`);const b=document.getElementById('ds-tgt-bar');if(b){b.style.width=disk.target.pct+'%';b.className=`prog-fill ${disk.target.pct>85?'red':'violet'}`;}}
     s('dw-state',wdog.connected?'Connected':wdog.connected===false?'Disconnected':'Unknown');
     s('dw-drops',wdog.total_drops??'—'); s('dw-catchups',wdog.total_catchups??'—');
+    // Parse lsyncd log for file transfer events
     const tblEl=document.getElementById('dashTransferTable');
-    if(tblEl&&transfers.sessions){
-      tblEl.innerHTML=transfers.sessions.length===0?'<div class="empty-state">No transfers yet</div>':`
-        <table><thead><tr><th>Time</th><th>Trigger</th><th>Files</th><th>Size</th><th>Duration</th><th>Status</th></tr></thead>
-        <tbody>${transfers.sessions.map(s=>`<tr>
-          <td>${timeAgo(s.started_at)||'—'}</td><td>${escHtml(s.trigger||'—')}</td>
-          <td>${s.files_transferred??'—'}</td><td>${s.bytes_sent_human||'—'}</td><td>${s.duration_human||'—'}</td>
-          <td><span class="badge ${s.status==='success'?'badge-green':s.status==='running'?'badge-blue':'badge-red'}">${s.status}</span></td>
-        </tr>`).join('')}</tbody></table>`;
+    if(tblEl){
+      const lines=(logs.lines||[]);
+      // Match lsyncd log lines that indicate actual file operations:
+      // e.g. "Apr 13 01:24:06 lsyncd: Rsyncing ... test-041226.text"
+      // or   "... transferred file ...", or "spawn ..."
+      const fileEvents=[];
+      // Pattern 1: rsync spawn lines — "spawn ...rsync..."
+      // Pattern 2: sent/received lines from rsync
+      // Pattern 3: Inotify events — "Inotify event on ..."
+      const reLine=/^(\w+\s+\d+\s+[\d:]+).*(?:Inotify|rsync|spawn|sent|transfer|Syncing|Rsyncing|finished|done).*?([\w.\-]+\.\w+)?$/i;
+      for(const line of lines){
+        if(!line.trim()) continue;
+        // Extract timestamp (first 3 tokens if looks like syslog format)
+        const m=line.match(/^(\w{3}\s+\d+\s+[\d:]+)/);
+        const ts=m?m[1]:'';
+        // Categorise event type
+        let evType='', evFile='';
+        if(/Inotify/i.test(line)){
+          evType='Inotify';
+          const fm=line.match(/Inotify\s+\S+\s+on\s+.*?([^/\s]+)$/);
+          evFile=fm?fm[1]:'';
+        } else if(/spawn.*rsync/i.test(line)){
+          evType='rsync spawn';
+        } else if(/finished.*rsync|rsync.*exit/i.test(line)){
+          evType='rsync done';
+        } else if(/Syncing|Rsyncing/i.test(line)){
+          evType='syncing';
+          const fm=line.match(/(?:Syncing|Rsyncing).*?([^/\s]+)$/);
+          evFile=fm?fm[1]:'';
+        } else if(/Normal mode|Sleeping/i.test(line)){
+          continue; // skip noise
+        } else if(/Error|Warn/i.test(line)){
+          evType='warning';
+        } else {
+          evType='info';
+        }
+        fileEvents.push({ts, type:evType, file:evFile, raw:line});
+      }
+      const recent=fileEvents.slice(-20).reverse();
+      if(recent.length===0){
+        tblEl.innerHTML='<div class="empty-state">No lsyncd events yet — log is empty or path not accessible</div>';
+      } else {
+        tblEl.innerHTML=`<table>
+          <thead><tr><th>Timestamp</th><th>Event</th><th>File/Detail</th></tr></thead>
+          <tbody>${recent.map(ev=>`<tr>
+            <td style="font-family:var(--mono);font-size:11px;white-space:nowrap;color:var(--text3)">${escHtml(ev.ts)}</td>
+            <td><span class="badge ${ev.type==='rsync done'?'badge-green':ev.type==='warning'?'badge-red':'badge-blue'}">${escHtml(ev.type)}</span></td>
+            <td style="font-family:var(--mono);font-size:11px;color:var(--text2);max-width:400px;overflow:hidden;text-overflow:ellipsis" title="${escHtml(ev.raw)}">${escHtml(ev.file||ev.raw.slice(0,80))}</td>
+          </tr>`).join('')}</tbody></table>`;
+      }
     }
   } catch(e){}
 }
