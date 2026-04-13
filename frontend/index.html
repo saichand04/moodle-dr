@@ -190,8 +190,8 @@ canvas.chart{width:100%;height:100%}
 .banner-text{font-size:13px;line-height:1.5} .banner-title{font-weight:600;margin-bottom:2px} .banner-body{color:var(--text3)}
 .banner-warn .banner-title{color:var(--amber)} .banner-err .banner-title{color:var(--red)}
 .banner-info .banner-title{color:var(--violet)} .banner-ok .banner-title{color:var(--green)}
-.dr-ring{position:relative;width:140px;height:140px;margin:20px auto}
-.dr-ring canvas{position:absolute;inset:0}
+.dr-ring{position:relative;width:200px;height:200px;margin:20px auto;overflow:visible}
+.dr-ring canvas{position:absolute;inset:0;overflow:visible}
 .dr-ring-val{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
 .dr-score-num{font-size:38px;font-weight:700;font-family:var(--mono);line-height:1}
 .dr-score-label{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.1em}
@@ -274,7 +274,7 @@ canvas.chart{width:100%;height:100%}
   <aside class="sidebar" id="sidebar">
     <div class="sb-header">
       <div class="sb-logo-mark"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></div>
-      <div class="sb-logo-text">Moodle DR v11</div>
+      <div class="sb-logo-text">Moodle DR</div>
       <button class="sb-collapse-btn" onclick="toggleSidebar()"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
     </div>
     <div class="sb-nav" id="sbNav"></div>
@@ -287,6 +287,7 @@ canvas.chart{width:100%;height:100%}
       <div class="topbar-pills">
         <div class="status-pill unknown" id="sshPill"><div class="status-dot unknown"></div>SSH</div>
         <div class="status-pill unknown" id="dbPill"><div class="status-dot unknown"></div>DB</div>
+        <div class="status-pill unknown" id="moodledataPill"><div class="status-dot unknown"></div><span id="moodledataPillLabel">moodledata</span></div>
       </div>
       <div class="topbar-clock" id="topClock"></div>
       <div class="topbar-date" id="topDate"></div>
@@ -441,7 +442,7 @@ function drawLineChart(canvas, data, color='#22d3ee') {
 
 function drawRing(canvas, pct, color) {
   const ctx = canvas.getContext('2d');
-  const W = canvas.offsetWidth||140, H = canvas.offsetHeight||140;
+  const W = canvas.offsetWidth||200, H = canvas.offsetHeight||200;
   canvas.width=W; canvas.height=H;
   const cx=W/2, cy=H/2, r=Math.min(W,H)/2-10;
   ctx.clearRect(0,0,W,H);
@@ -539,9 +540,11 @@ function buildNav() {
       {key:'verify',label:'Verify',icon:'check'},
     ]});
   }
+  // DR Readiness always at top
+  groups.push({group:'DR',items:[{key:'dr_readiness',label:'DR Readiness',icon:'shield'}]});
   if(showFile){
     groups.push({group:'File Sync',items:[
-      {key:'dashboard',label:'Dashboard',icon:'activity'},
+      {key:'dashboard',label:'File Sync Status',icon:'activity'},
       {key:'transfers',label:'Transfers',icon:'bar'},
       {key:'connectivity',label:'Connectivity',icon:'zap'},
       {key:'failover',label:'Failover',icon:'alert'},
@@ -550,7 +553,7 @@ function buildNav() {
   }
   if(showDB){
     groups.push({group:'Database Sync',items:[
-      {key:'db_replication',label:'DB Replication',icon:'database'},
+      {key:'db_replication',label:'DB Replication Status',icon:'database'},
       {key:'db_integrity',label:'DB Integrity',icon:'shield'},
       {key:'db_failover',label:'DB Failover',icon:'alert'},
       {key:'db_settings',label:'Settings',icon:'settings'},
@@ -560,10 +563,7 @@ function buildNav() {
     groups.push({group:'Migration',items:[
       {key:'initial_migration',label:'Initial Migration',icon:'layers'},
       {key:'live_sync',label:'Live Sync Status',icon:'activity'},
-      {key:'dr_readiness',label:'DR Readiness',icon:'shield'},
     ]});
-  } else if((showFile||showDB)&&!showBoth){
-    groups.push({group:'DR',items:[{key:'dr_readiness',label:'DR Readiness',icon:'shield'}]});
   }
   if(isSetupComplete){
     groups.push({group:'Integrations',items:[
@@ -619,8 +619,8 @@ function showPage(key) {
   if(bcEl) bcEl.textContent={
     welcome:'Welcome',srv_details:'Server Details',prereqs:'Prerequisites',
     configure:'Auto-Configure',bulk_sync:'Bulk Sync',start_repl:'Start Replication',
-    verify:'Verify',dashboard:'Dashboard',transfers:'Transfers',connectivity:'Connectivity',
-    failover:'File Failover',file_settings:'File Settings',db_replication:'DB Replication',
+    verify:'Verify',dashboard:'File Sync Status',transfers:'Transfers',connectivity:'Connectivity',
+    failover:'File Failover',file_settings:'File Settings',db_replication:'DB Replication Status',
     db_integrity:'DB Integrity',db_failover:'DB Failover',db_settings:'DB Settings',
     initial_migration:'Initial Migration',live_sync:'Live Sync',dr_readiness:'DR Readiness',
     ext_access:'External Access',notifications:'Notifications',openclaw:'OpenClaw API',
@@ -664,11 +664,24 @@ function renderPage(key) {
 // ── TOPBAR POLLING ────────────────────────────────────────────────────────────
 async function pollTopbar() {
   try {
-    const s=await apiGet('/api/public/status');
+    const [s,cfg]=await Promise.all([apiGet('/api/public/status'),apiGet('/api/setup/config').catch(()=>({}))]);
     const sshOk=s.file_sync?.lsyncd_running!==false;
     const dbSt=s.db_sync?.status;
     const dbOk=dbSt==='healthy'?true:(dbSt==='error'||dbSt==='stopped')?false:null;
     updateStatusPills(sshOk,dbOk);
+    // moodledata pill
+    const mdEl=document.getElementById('moodledataPill');
+    const mdLbl=document.getElementById('moodledataPillLabel');
+    const srcPath=cfg.src_path||cfg.file?.src_path||'';
+    if(mdEl&&mdLbl){
+      const shortPath=srcPath?srcPath.replace(/\/$/,'').split('/').pop()||srcPath:'moodledata';
+      mdLbl.textContent=shortPath;
+      const diskOk=s.file_sync?.src_disk_pct?(s.file_sync.src_disk_pct<85):null;
+      const cls=diskOk===true?'healthy':diskOk===false?'warn':'unknown';
+      mdEl.className=`status-pill ${cls}`;
+      const dot=mdEl.querySelector('.status-dot');
+      if(dot) dot.className=`status-dot ${cls}`;
+    }
   } catch(e){}
 }
 function startTopbarPolling(){ pollTopbar(); setInterval(pollTopbar,30000); }
@@ -687,7 +700,7 @@ async function startSetup(mode) {
 async function skipToApp() {
   await apiPost('/api/setup/mode',{welcome_seen:true});
   appState.welcomeSeen=true;
-  transitionToApp((appState.fileSetupComplete||appState.dbSetupComplete)?'dashboard':'welcome');
+  transitionToApp((appState.fileSetupComplete||appState.dbSetupComplete)?'dr_readiness':'welcome');
 }
 function transitionToApp(firstPage) {
   const ws=document.getElementById('welcome-screen');
@@ -1048,17 +1061,16 @@ async function goToDashboard(){
 // ═══════════════════════════════════════════════════════════════
 function pageDashboard() {
   return `
-    <div class="page-header"><div class="page-title">File Sync Dashboard</div><div class="page-sub">Real-time rsync + lsyncd monitoring</div></div>
+    <div class="page-header"><div class="page-title">File Sync Status</div><div class="page-sub">Real-time rsync + lsyncd monitoring</div></div>
     <div class="metric-row">
       <div class="mc"><div class="mc-label">${ICONS.bar} Files Transferred</div><div class="mc-val cyan" id="d-files">—</div><div class="mc-sub">this session</div></div>
       <div class="mc"><div class="mc-label">${ICONS.zap} Speed</div><div class="mc-val violet" id="d-speed">—</div><div class="mc-sub">current</div></div>
       <div class="mc"><div class="mc-label">${ICONS.activity} Progress</div><div class="mc-val green" id="d-prog">—</div><div class="mc-sub">rsync</div></div>
       <div class="mc"><div class="mc-label">${ICONS.clock} Last Sync</div><div class="mc-val muted" id="d-last" style="font-size:16px">—</div></div>
     </div>
-    <div class="two-col">
-      <div class="card"><div class="panel-title">${ICONS.activity} Sync Status</div>
-        <div class="kv-row"><span class="kv-key">lsyncd</span><span class="kv-val" id="ds-lsyncd">checking...</span></div>
-        <div class="kv-row"><span class="kv-key">rsync</span><span class="kv-val" id="ds-rsync">checking...</span></div>
+    <div class="three-col">
+      <div class="card"><div class="panel-title">${ICONS.activity} rsync Status</div>
+        <div class="kv-row"><span class="kv-key">State</span><span class="kv-val" id="ds-rsync">checking...</span></div>
         <div class="kv-row"><span class="kv-key">SSH</span><span class="kv-val" id="ds-ssh">checking...</span></div>
         <div class="kv-row"><span class="kv-key">Last result</span><span class="kv-val" id="ds-result">—</span></div>
         <div style="margin-top:12px">
@@ -1067,8 +1079,17 @@ function pageDashboard() {
         </div>
         <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn btn-primary btn-sm" onclick="triggerRsync()">Trigger Rsync</button>
-          <button class="btn btn-ghost btn-sm" onclick="startLsyncd()">Start lsyncd</button>
-          <button class="btn btn-ghost btn-sm" onclick="stopLsyncd()">Stop lsyncd</button>
+        </div>
+      </div>
+      <div class="card"><div class="panel-title">${ICONS.zap} lsyncd Status</div>
+        <div class="kv-row"><span class="kv-key">Status</span><span class="kv-val" id="ds-lsyncd">checking...</span></div>
+        <div class="kv-row"><span class="kv-key">PID</span><span class="kv-val" id="ds-lsyncd-pid">—</span></div>
+        <div class="kv-row"><span class="kv-key">Uptime</span><span class="kv-val" id="ds-lsyncd-uptime">—</span></div>
+        <div class="kv-row"><span class="kv-key">Events queued</span><span class="kv-val" id="ds-lsyncd-queue">—</span></div>
+        <div class="kv-row"><span class="kv-key">Config</span><span class="kv-val" id="ds-lsyncd-cfg" style="font-size:11px">—</span></div>
+        <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-ghost btn-sm" onclick="startLsyncd()">Start</button>
+          <button class="btn btn-ghost btn-sm" onclick="stopLsyncd()">Stop</button>
         </div>
       </div>
       <div class="card"><div class="panel-title">${ICONS.server} Disk Usage</div>
@@ -1098,7 +1119,16 @@ async function loadDashboard() {
     s('d-files',(status.files_transferred||0).toLocaleString());
     s('d-speed',status.speed||'—'); s('d-prog',(status.progress||0)+'%');
     s('d-last',status.last_run?timeAgo(status.last_run):'—');
-    s('ds-lsyncd',lsyncd.status||'—'); s('ds-rsync',status.running?'Running':'Idle');
+    // rsync card
+    s('ds-rsync',status.running?'Running':'Idle');
+    // lsyncd dedicated card
+    const lStatus=lsyncd.status||'—';
+    const lEl=document.getElementById('ds-lsyncd');
+    if(lEl){lEl.textContent=lStatus;lEl.className='kv-val '+(lStatus==='active'?'green':lStatus==='—'?'':'red');}
+    s('ds-lsyncd-pid',lsyncd.pid||'—');
+    s('ds-lsyncd-uptime',lsyncd.uptime||'—');
+    s('ds-lsyncd-queue',lsyncd.events_queued!=null?lsyncd.events_queued:'—');
+    s('ds-lsyncd-cfg',lsyncd.config_path||'/etc/lsyncd/lsyncd.conf.lua');
     s('ds-ssh',wdog.connected?'Connected':'Unknown'); s('ds-result',status.last_result||'—');
     const pct=status.progress||0;
     const prog=document.getElementById('dashProg');
@@ -1865,11 +1895,35 @@ async function loadLiveSync(){
 function pageDrReadiness() {
   return `
     <div class="page-header"><div class="page-title">DR Readiness</div><div class="page-sub">Disaster Recovery readiness score and RPO/RTO estimates</div></div>
+    <!-- Summary cards -->
+    <div class="metric-row" style="margin-bottom:20px">
+      <div class="mc">
+        <div class="mc-label">${ICONS.activity} File Sync</div>
+        <div class="mc-val" id="dr-sum-lsyncd" style="font-size:18px">—</div>
+        <div class="mc-sub" id="dr-sum-rsync">rsync: —</div>
+      </div>
+      <div class="mc">
+        <div class="mc-label">${ICONS.database} DB Sync</div>
+        <div class="mc-val" id="dr-sum-db" style="font-size:18px">—</div>
+        <div class="mc-sub" id="dr-sum-dblabel">—</div>
+      </div>
+      <div class="mc">
+        <div class="mc-label">${ICONS.clock} File RPO</div>
+        <div class="mc-val cyan" id="dr-sum-filerpo" style="font-size:18px">—</div>
+        <div class="mc-sub">lsyncd lag estimate</div>
+      </div>
+      <div class="mc">
+        <div class="mc-label">${ICONS.clock} DB RPO</div>
+        <div class="mc-val violet" id="dr-sum-dbrpo" style="font-size:18px">—</div>
+        <div class="mc-sub">replication lag</div>
+      </div>
+    </div>
+    <!-- Ring + RPO/RTO -->
     <div class="two-col">
       <div class="card" style="display:flex;flex-direction:column;align-items:center">
         <div class="panel-title" style="width:100%">${ICONS.shield} DR Readiness Score</div>
         <div class="dr-ring">
-          <canvas id="drRingCanvas" width="140" height="140"></canvas>
+          <canvas id="drRingCanvas" width="200" height="200"></canvas>
           <div class="dr-ring-val"><div class="dr-score-num" id="drScore">—</div><div class="dr-score-label">/ 100</div></div>
         </div>
         <div id="drDeductions" style="width:100%;margin-top:12px"></div>
@@ -1901,13 +1955,43 @@ function pageDrReadiness() {
 }
 function initDrReadiness(){ loadDrReadiness(); pollTimers['drReadiness']=setInterval(loadDrReadiness,30000); }
 async function loadDrReadiness(){
-  const [pub,lsyncd,ssh,disk,dbH,hbeat]=await Promise.all([
+  const dbConfigured = appState.dbSetupComplete;
+  const [pub,lsyncd,ssh,disk,rsyncSt,dbH,hbeat]=await Promise.all([
     apiGet('/api/public/status'),apiGet('/api/lsyncd/status'),apiGet('/api/health/ssh'),
-    apiGet('/api/health/disk'),apiGet('/api/db/health'),apiGet('/api/db/pt/heartbeat-status'),
+    apiGet('/api/health/disk'),apiGet('/api/rsync/status'),
+    dbConfigured?apiGet('/api/db/health'):Promise.resolve({}),
+    dbConfigured?apiGet('/api/db/pt/heartbeat-status'):Promise.resolve({active:false}),
   ]);
-  const score=pub.dr_readiness?.score??100;
-  const rpo=pub.dr_readiness?.rpo_seconds??0;
-  const dbLag=dbH.lag_seconds??0;
+
+  // ── Compute score purely from active checks ──────────────────────────────
+  // File checks: lsyncd(25), SSH(25), src disk(15), tgt disk(10) = max 75 if DB not configured, max 40 if both
+  const fileWeight = dbConfigured ? 40 : 100;
+  const dbWeight   = dbConfigured ? 60 : 0;
+  let fileScore = 0;
+  const lsyncdOk = lsyncd.status==='active';
+  const sshOk    = ssh.connected===true;
+  const srcOk    = (disk.source?.pct||0)<85;
+  const tgtOk    = (disk.target?.pct||0)<85;
+  if(lsyncdOk) fileScore += dbConfigured?15:35;
+  if(sshOk)    fileScore += dbConfigured?10:30;
+  if(srcOk)    fileScore += dbConfigured?8:20;
+  if(tgtOk)    fileScore += dbConfigured?7:15;
+  let dbScore = 0;
+  if(dbConfigured){
+    const ioOk  = dbH.io_running==='Yes';
+    const sqlOk = dbH.sql_running==='Yes';
+    const lagOk = (dbH.lag_seconds??999)<60;
+    const hbOk  = hbeat.active===true;
+    if(ioOk)  dbScore += 20;
+    if(sqlOk) dbScore += 20;
+    if(lagOk) dbScore += 12;
+    if(hbOk)  dbScore += 8;
+  }
+  const score = Math.min(100, fileScore + dbScore);
+  const rpo   = pub.dr_readiness?.rpo_seconds??0;
+  const dbLag = dbH.lag_seconds??0;
+
+  // ── Ring ─────────────────────────────────────────────────────────────────
   const canvas=document.getElementById('drRingCanvas');
   if(canvas){
     const color=score>=90?'#34d399':score>=70?'#fbbf24':'#f87171';
@@ -1915,32 +1999,70 @@ async function loadDrReadiness(){
     const scoreEl=document.getElementById('drScore');
     if(scoreEl){scoreEl.textContent=score;scoreEl.style.color=color;scoreEl.style.textShadow=`0 0 20px ${color}`;}
   }
+
+  // ── Summary cards ────────────────────────────────────────────────────────
+  const se=(id,v,cls)=>{const e=document.getElementById(id);if(e){e.textContent=v;if(cls){e.className=e.className.replace(/\b(cyan|violet|green|amber|red|muted)\b/g,'');e.classList.add(cls);}}};
+  se('dr-sum-lsyncd', lsyncdOk?'Running':'Stopped', lsyncdOk?'green':'red');
+  const rDoc=document.getElementById('dr-sum-rsync');if(rDoc)rDoc.textContent='rsync: '+(rsyncSt.running?'Running':'Idle');
+  if(dbConfigured){
+    const dbRunning=dbH.io_running==='Yes'&&dbH.sql_running==='Yes';
+    se('dr-sum-db', dbRunning?'Replicating':dbH.status||'Unknown', dbRunning?'green':'amber');
+    const dlEl=document.getElementById('dr-sum-dblabel');if(dlEl)dlEl.textContent=dbLag?`lag: ${dbLag}s`:'lag: ~0s';
+  } else {
+    se('dr-sum-db','Not Configured','muted');
+    const dlEl=document.getElementById('dr-sum-dblabel');if(dlEl)dlEl.textContent='DB setup not done';
+  }
+  se('dr-sum-filerpo', lsyncdOk?'< 60s':'N/A');
+  se('dr-sum-dbrpo', dbConfigured?(dbLag?`${dbLag}s`:'< 5s'):'N/A');
+
+  // ── RPO/RTO labels ───────────────────────────────────────────────────────
   const s=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
-  s('dr-file-rpo',lsyncd.status==='active'?'< 60s':'lsyncd not running');
-  s('dr-db-rpo',dbLag?`${dbLag}s replication lag`:'~0s');
-  s('dr-rpo',rpo?`${rpo}s`:'< 60s');
+  s('dr-file-rpo',lsyncdOk?'< 60s':'lsyncd not running');
+  s('dr-db-rpo',dbConfigured?(dbLag?`${dbLag}s replication lag`:'~0s'):'DB not configured');
+  s('dr-rpo',rpo?`${rpo}s`:(lsyncdOk?'< 60s':'lsyncd down'));
+
+  // ── Deductions ───────────────────────────────────────────────────────────
   const dedEl=document.getElementById('drDeductions');
   const deductions=[];
-  if(dbH.status==='error') deductions.push({txt:'DB replication error',pts:-40});
-  else if(dbH.status==='stopped') deductions.push({txt:'DB replication stopped',pts:-30});
-  else if(dbH.status==='lagging') deductions.push({txt:'DB replication lagging >5min',pts:-15});
-  if(lsyncd.status!=='active') deductions.push({txt:'lsyncd not running',pts:-10});
+  if(!lsyncdOk) deductions.push({txt:'lsyncd not running',pts: dbConfigured?-15:-35});
+  if(!sshOk)    deductions.push({txt:'SSH not connected',pts: dbConfigured?-10:-30});
+  if(!srcOk)    deductions.push({txt:'Source disk > 85%',pts: dbConfigured?-8:-20});
+  if(!tgtOk)    deductions.push({txt:'Target disk > 85%',pts: dbConfigured?-7:-15});
+  if(dbConfigured){
+    if(dbH.status==='error')        deductions.push({txt:'DB replication error',pts:-40});
+    else if(dbH.status==='stopped') deductions.push({txt:'DB replication stopped',pts:-30});
+    else if(dbH.status==='lagging') deductions.push({txt:'DB replication lagging >5min',pts:-12});
+  }
   if(dedEl) dedEl.innerHTML=deductions.length?deductions.map(d=>`
     <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:12px">
       <span style="color:var(--text3)">${d.txt}</span><span style="color:var(--red)">${d.pts}</span>
-    </div>`).join(''):`<div style="color:var(--green);font-size:12px;text-align:center">No deductions</div>`;
-  const checks=[
-    {name:'lsyncd running',ok:lsyncd.status==='active'},
-    {name:'SSH connectivity',ok:ssh.connected},
-    {name:'Source disk OK (< 85%)',ok:(disk.source?.pct||0)<85},
-    {name:'Target disk OK (< 85%)',ok:(disk.target?.pct||0)<85},
+    </div>`).join(''):`<div style="color:var(--green);font-size:12px;text-align:center;padding:8px 0">All checks passed</div>`;
+
+  // ── Checklist ────────────────────────────────────────────────────────────
+  const fileChecks=[
+    {name:'lsyncd running',ok:lsyncdOk},
+    {name:'SSH connectivity',ok:sshOk},
+    {name:'Source disk OK (< 85%)',ok:srcOk},
+    {name:'Target disk OK (< 85%)',ok:tgtOk},
+  ];
+  const dbChecks=dbConfigured?[
     {name:'MySQL IO thread ON',ok:dbH.io_running==='Yes'},
     {name:'MySQL SQL thread ON',ok:dbH.sql_running==='Yes'},
     {name:'DB lag < 60s',ok:(dbH.lag_seconds??999)<60},
     {name:'pt-heartbeat running',ok:hbeat.active},
+  ]:[
+    {name:'MySQL IO thread ON',na:true},
+    {name:'MySQL SQL thread ON',na:true},
+    {name:'DB lag < 60s',na:true},
+    {name:'pt-heartbeat running',na:true},
   ];
+  const allChecks=[...fileChecks,...dbChecks];
   const clEl=document.getElementById('drChecklist');
-  if(clEl) clEl.innerHTML=`<div class="check-list">${checks.map(c=>`
+  if(clEl) clEl.innerHTML=`<div class="check-list">${allChecks.map(c=>c.na?`
+    <div class="check-item" style="opacity:.45">
+      <div class="check-icon" style="color:var(--amber)">${ICONS.alert}</div>
+      <div class="check-name">${c.name} <span style="color:var(--amber);font-size:11px">(DB not configured)</span></div>
+    </div>`:`
     <div class="check-item ${c.ok?'pass':'fail'}">
       <div class="check-icon">${c.ok?ICONS.check:ICONS.x}</div>
       <div class="check-name">${c.name}</div>
@@ -2488,7 +2610,7 @@ async function initApp() {
   if(appState.welcomeSeen||(appState.fileSetupComplete||appState.dbSetupComplete)){
     document.getElementById('welcome-screen').style.display='none';
     document.getElementById('appShell').style.display='flex';
-    const firstPage=(appState.fileSetupComplete||appState.dbSetupComplete)?'dashboard':'welcome';
+    const firstPage=(appState.fileSetupComplete||appState.dbSetupComplete)?'dr_readiness':'welcome';
     showPage(firstPage);
     startClock();
     startTopbarPolling();
