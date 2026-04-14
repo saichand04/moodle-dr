@@ -384,16 +384,22 @@ def _remote_run(ssh_base: list, cmd: str, input_data: str = None, timeout: int =
     -tt forces PTY which merges stdout+stderr — capture_output=True conflicts with PTY
     and causes 'Connection closed' immediately. Use stdout=PIPE + stderr=STDOUT instead.
     stdin=DEVNULL prevents any accidental stdin interaction with the PTY.
+
+    NOTE: subprocess.run raises ValueError if both 'input' and 'stdin' are set,
+    so we must pick one or the other.
     """
     try:
-        proc = subprocess.run(
-            ssh_base + [cmd],
-            input=input_data.encode() if input_data else None,
-            stdin=subprocess.PIPE if input_data else subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,  # PTY merges stderr into stdout anyway
-            timeout=timeout
-        )
+        kwargs = {
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.STDOUT,   # PTY merges stderr into stdout anyway
+            "timeout": timeout,
+        }
+        if input_data:
+            # 'input' implies stdin=PIPE internally — do NOT also set stdin
+            kwargs["input"] = input_data.encode()
+        else:
+            kwargs["stdin"] = subprocess.DEVNULL
+        proc = subprocess.run(ssh_base + [cmd], **kwargs)
         out = proc.stdout.decode(errors='replace').strip()
         return {"ok": proc.returncode == 0, "stdout": out,
                 "stderr": "", "returncode": proc.returncode}
