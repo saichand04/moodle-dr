@@ -29,6 +29,7 @@ async def init_db_replication():
         ssl_ca_path     TEXT NOT NULL DEFAULT '/etc/mysql/ssl/ca-cert.pem',
         ssl_cert_path   TEXT NOT NULL DEFAULT '/etc/mysql/ssl/client-cert.pem',
         ssl_key_path    TEXT NOT NULL DEFAULT '/etc/mysql/ssl/client-key.pem',
+        ssl_remote_dir  TEXT NOT NULL DEFAULT '/etc/mysql/ssl',
         seed_method     TEXT NOT NULL DEFAULT 'mysqldump',
         configured_at   TEXT,
         updated_at      TEXT
@@ -69,6 +70,15 @@ async def init_db_replication():
         result    TEXT
     );
     """)
+    # ── Schema migrations: safely add columns missing in existing DBs ──────────
+    migrations = [
+        "ALTER TABLE db_replication_config ADD COLUMN ssl_remote_dir TEXT NOT NULL DEFAULT '/etc/mysql/ssl'",
+    ]
+    for sql in migrations:
+        try:
+            conn.execute(sql)
+        except Exception:
+            pass  # Column already exists — ignore
     conn.commit()
     conn.close()
 

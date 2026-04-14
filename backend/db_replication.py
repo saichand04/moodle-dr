@@ -336,20 +336,13 @@ def push_ssl_to_replica():
         return {"ok": False, "error": f"Cannot reach replica via SSH: {r['stderr']}", "steps": steps}
 
     # ── 2. Bootstrap sudoers rule via stdin pipe (no prior sudo needed) ──────
-    # Write sudoers rule to /tmp, validate with visudo -c, then use
-    # 'sudo tee' — bootstrapped by piping through the SSH session stdin.
-    # This works because we pipe stdin from the source server (running as root).
-    bootstrap_cmd = (
-        f"echo '{sudoers_rule}' > {remote_staging}_sudoers_tmp && "
-        f"sudo SUDO_ASKPASS=/bin/false tee {sudoers_file} < {remote_staging}_sudoers_tmp > /dev/null 2>&1 || "
-        # Fallback: try writing without sudo in case already permitted
-        f"(cp {remote_staging}_sudoers_tmp /tmp/moodlesync-mysql.sudoers && echo 'sudoers_pending')"
-    )
-    # Better approach: use ssh with stdin pipe for sudo tee
-    import subprocess as _sp
+    # subprocess.run with input= pipes the rule content through SSH stdin into
+    # 'sudo tee'. Works because the dashboard runs as root on the source server.
+    # Bootstrap sudoers via stdin pipe — subprocess.run with input= pipes content
+    # through SSH stdin into 'sudo tee', no password prompt needed.
     sudoers_content = sudoers_rule + "\n"
     try:
-        proc = _sp.run(
+        proc = subprocess.run(
             ssh_base + [f"sudo tee {sudoers_file}"],
             input=sudoers_content, capture_output=True, text=True, timeout=15
         )
