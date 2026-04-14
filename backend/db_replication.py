@@ -555,7 +555,14 @@ def configure_replica():
 
     ssh_user = state.AZURE_VM_USER
     sb       = _ssh_base(replica_host)
-    ssl_dir  = cfg.get("ssl_remote_dir", "/etc/mysql/ssl")
+    # ssl_remote_dir is saved by push_ssl_to_replica.
+    # If it's still the default /etc/mysql/ssl, that dir likely doesn't exist on the replica
+    # (it lives on the source). Fall back to the known pushed location ~/mysql-ssl.
+    ssl_dir_raw = cfg.get("ssl_remote_dir", "")
+    if not ssl_dir_raw or ssl_dir_raw == "/etc/mysql/ssl":
+        ssl_dir = f"/home/{state.AZURE_VM_USER}/mysql-ssl"
+    else:
+        ssl_dir = ssl_dir_raw
     steps    = []
 
     # ── 1. Detect DB flavour via SSH (MariaDB vs MySQL) ───────────────────────
