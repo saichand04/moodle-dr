@@ -311,7 +311,25 @@ def push_ssl_to_replica():
     replica_host = cfg.get("replica_host", "")
     if not replica_host:
         return {"ok": False, "error": "Replica host not configured"}
+
     ssl_dir = "/etc/mysql/ssl"
+    ssh_target = f"{state.AZURE_VM_USER}@{replica_host}"
+    ssh_base = [
+        "ssh", "-i", state.SSH_KEY_PATH,
+        "-o", "StrictHostKeyChecking=accept-new",
+        "-o", "BatchMode=yes",
+        "-o", "ConnectTimeout=10",
+        ssh_target,
+    ]
+    steps = []
+
+    # Step 1: ensure /tmp/mysql-ssl staging dir exists on replica
+    r = run_cmd(ssh_base + ["mkdir -p /tmp/mysql-ssl"], timeout=15)
+    steps.append({"step": "mkdir /tmp/mysql-ssl", "ok": r["ok"], "err": r["stderr"]})
+    if not r["ok"]:
+        return {"ok": False, "error": f"Cannot reach replica via SSH: {r['stderr']}", "steps": steps}
+
+    # Step 2: scp certs to /tmp/mysql-ssl (moodlesync can write /tmp)
     r = run_cmd([
         "scp", "-i", state.SSH_KEY_PATH,
         "-o", "StrictHostKeyChecking=accept-new",
@@ -319,11 +337,31 @@ def push_ssl_to_replica():
         f"{ssl_dir}/ca-cert.pem",
         f"{ssl_dir}/client-cert.pem",
         f"{ssl_dir}/client-key.pem",
-        f"{state.AZURE_VM_USER}@{replica_host}:/etc/mysql/ssl/",
+        f"{ssh_target}:/tmp/mysql-ssl/",
     ], timeout=30)
-    db_db.log_audit("push_ssl_to_replica", result="ok" if r["ok"] else "error",
-                    details={"host": replica_host, "stderr": r["stderr"]})
-    return {"ok": r["ok"], "message": r["stdout"] or "SSL certs pushed", "error": r["stderr"] if not r["ok"] else None}
+    steps.append({"step": "scp certs to /tmp/mysql-ssl", "ok": r["ok"], "err": r["stderr"]})
+    if not r["ok"]:
+        return {"ok": False, "error": f"SCP failed: {r['stderr']}", "steps": steps}
+
+    # Step 3: move certs to /etc/mysql/ssl/ and set ownership via sudo
+    move_cmd = (
+        "sudo mkdir -p /etc/mysql/ssl && "
+        "sudo cp /tmp/mysql-ssl/ca-cert.pem /tmp/mysql-ssl/client-cert.pem "
+        "/tmp/mysql-ssl/client-key.pem /etc/mysql/ssl/ && "
+        "sudo chown -R mysql:mysql /etc/mysql/ssl && "
+        "sudo chmod 640 /etc/mysql/ssl/*.pem"
+    )
+    r = run_cmd(ssh_base + [move_cmd], timeout=20)
+    steps.append({"step": "move certs to /etc/mysql/ssl", "ok": r["ok"], "err": r["stderr"]})
+    if not r["ok"]:
+        return {
+            "ok": False,
+            "error": f"Move to /etc/mysql/ssl failed (does moodlesync have passwordless sudo for cp/mkdir?): {r['stderr']}",
+            "steps": steps
+        }
+
+    db_db.log_audit("push_ssl_to_replica", result="ok", details={"host": replica_host})
+    return {"ok": True, "message": "SSL certs pushed to /etc/mysql/ssl on replica", "steps": steps}
 
 
 @router.post("/setup/configure-source")
