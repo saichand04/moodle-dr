@@ -305,6 +305,45 @@ def generate_ssl_certs():
         return {"ok": False, "error": str(e), "steps": steps}
 
 
+def _ssh_base(host: str) -> list:
+    """Build SSH base command for moodlesync user."""
+    return [
+        "ssh", "-i", state.SSH_KEY_PATH,
+        "-o", "StrictHostKeyChecking=accept-new",
+        "-o", "BatchMode=yes",
+        "-o", "ConnectTimeout=10",
+        f"{state.AZURE_VM_USER}@{host}",
+    ]
+
+
+def _remote_run(ssh_base: list, cmd: str, input_data: str = None, timeout: int = 20) -> dict:
+    """Run command on remote via SSH, optionally piping input_data through stdin."""
+    try:
+        proc = subprocess.run(
+            ssh_base + [cmd],
+            input=input_data, capture_output=True, text=True, timeout=timeout
+        )
+        return {"ok": proc.returncode == 0, "stdout": proc.stdout.strip(),
+                "stderr": proc.stderr.strip(), "returncode": proc.returncode}
+    except Exception as e:
+        return {"ok": False, "stdout": "", "stderr": str(e), "returncode": -1}
+
+
+def _detect_db_type(host: str, port: int, user: str, password: str) -> str:
+    """Return 'mariadb' or 'mysql' by connecting and reading VERSION()."""
+    conn, err = _get_mysql_conn(host, port, user, password)
+    if err:
+        return "unknown"
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT VERSION()")
+        v = (cur.fetchone()[0] or "").lower()
+        conn.close()
+        return "mariadb" if "mariadb" in v else "mysql"
+    except Exception:
+        return "unknown"
+
+
 @router.post("/setup/push-ssl-to-replica")
 def push_ssl_to_replica():
     cfg = db_db.get_raw_db_config()
@@ -314,66 +353,59 @@ def push_ssl_to_replica():
 
     local_ssl_dir  = "/etc/mysql/ssl"
     remote_staging = "/tmp/mysql-ssl"
-    remote_ssl_dir = "/etc/mysql/ssl"
-    ssh_user       = state.AZURE_VM_USER          # moodlesync
-    ssh_target     = f"{ssh_user}@{replica_host}"
-    sudoers_rule   = f"{ssh_user} ALL=(root) NOPASSWD: /bin/mkdir, /bin/cp, /bin/chown, /bin/chmod"
-    sudoers_file   = "/etc/sudoers.d/moodlesync-mysql"
+    ssh_user       = state.AZURE_VM_USER
+    ssh_tgt        = f"{ssh_user}@{replica_host}"
+    sb             = _ssh_base(replica_host)
+    steps          = []
 
-    ssh_base = [
-        "ssh", "-i", state.SSH_KEY_PATH,
-        "-o", "StrictHostKeyChecking=accept-new",
-        "-o", "BatchMode=yes",
-        "-o", "ConnectTimeout=10",
-        ssh_target,
-    ]
-    steps = []
-
-    # ── 1. Verify SSH reachability ───────────────────────────────────────────
-    r = run_cmd(ssh_base + ["echo ok"], timeout=12)
-    steps.append({"step": "SSH connectivity to replica", "ok": r["ok"], "err": r["stderr"]})
+    # ── 1. SSH reachability ───────────────────────────────────────────────────
+    r = _remote_run(sb, "echo ok", timeout=12)
+    steps.append({"step": "SSH connectivity", "ok": r["ok"], "err": r["stderr"]})
     if not r["ok"]:
-        return {"ok": False, "error": f"Cannot reach replica via SSH: {r['stderr']}", "steps": steps}
+        return {"ok": False, "error": f"SSH failed: {r['stderr']}", "steps": steps}
 
-    # ── 2. Bootstrap sudoers rule via stdin pipe (no prior sudo needed) ──────
-    # subprocess.run with input= pipes the rule content through SSH stdin into
-    # 'sudo tee'. Works because the dashboard runs as root on the source server.
-    # Bootstrap sudoers via stdin pipe — subprocess.run with input= pipes content
-    # through SSH stdin into 'sudo tee', no password prompt needed.
-    sudoers_content = sudoers_rule + "\n"
-    try:
-        proc = subprocess.run(
-            ssh_base + [f"sudo tee {sudoers_file}"],
-            input=sudoers_content, capture_output=True, text=True, timeout=15
-        )
-        sudoers_ok = proc.returncode == 0
-        steps.append({"step": f"Write sudoers rule to {sudoers_file}",
-                      "ok": sudoers_ok, "err": proc.stderr.strip()})
-    except Exception as e:
-        sudoers_ok = False
-        steps.append({"step": f"Write sudoers rule to {sudoers_file}",
-                      "ok": False, "err": str(e)})
+    # ── 2. Bootstrap sudoers via stdin pipe ──────────────────────────────────
+    # Dashboard runs as root on source — pipe sudoers content via SSH stdin
+    # into 'sudo tee' on the replica. No password prompt needed from source root.
+    sudoers_rule = (
+        f"{ssh_user} ALL=(root) NOPASSWD: "
+        "/bin/mkdir, /bin/cp, /bin/chown, /bin/chmod, "
+        "/usr/bin/tee, /bin/systemctl, /usr/sbin/mariadbd"
+    )
+    r = _remote_run(sb, "sudo tee /etc/sudoers.d/moodlesync-mysql",
+                    input_data=sudoers_rule + "\n", timeout=15)
+    sudoers_ok = r["ok"]
+    steps.append({"step": "Bootstrap sudoers on replica", "ok": sudoers_ok, "err": r["stderr"]})
 
-    if not sudoers_ok:
-        # Could not write sudoers — fall back to home-dir cert path (no sudo needed)
-        remote_ssl_dir = f"/home/{ssh_user}/mysql-ssl"
-        steps.append({"step": "Sudoers unavailable — using home-dir cert path",
-                      "ok": True, "err": f"Certs will land in {remote_ssl_dir} instead"})
-
-    # ── 3. Create staging + final dirs on replica ────────────────────────────
-    mkdir_cmd = f"mkdir -p {remote_staging}"
+    # ── 3. Decide cert destination ────────────────────────────────────────────
+    # If sudoers worked → /etc/mysql/ssl (proper system path, owned by mysql)
+    # Otherwise → /home/moodlesync/mysql-ssl with o+x on home dir so mysql can traverse
     if sudoers_ok:
-        mkdir_cmd += f" && sudo mkdir -p {remote_ssl_dir}"
+        remote_ssl_dir = "/etc/mysql/ssl"
     else:
-        mkdir_cmd += f" && mkdir -p {remote_ssl_dir}"
+        remote_ssl_dir = f"/home/{ssh_user}/mysql-ssl"
 
-    r = run_cmd(ssh_base + [mkdir_cmd], timeout=15)
-    steps.append({"step": f"Create dirs on replica ({remote_ssl_dir})",
-                  "ok": r["ok"], "err": r["stderr"]})
+    # ── 4. Create required directories ───────────────────────────────────────
+    # Also create /var/log/mysql for binlog (MariaDB doesn't auto-create it)
+    mkdir_cmds = [f"mkdir -p {remote_staging}", "mkdir -p /var/log/mysql"]
+    if sudoers_ok:
+        mkdir_cmds += [
+            f"sudo mkdir -p {remote_ssl_dir}",
+            "sudo mkdir -p /var/log/mysql",
+            "sudo chown mysql:mysql /var/log/mysql",
+        ]
+    else:
+        mkdir_cmds += [
+            f"mkdir -p {remote_ssl_dir}",
+            # Allow mysql process to traverse home dir
+            f"chmod o+x /home/{ssh_user}",
+        ]
+    r = _remote_run(sb, " && ".join(mkdir_cmds), timeout=15)
+    steps.append({"step": "Create dirs + /var/log/mysql on replica", "ok": r["ok"], "err": r["stderr"]})
     if not r["ok"]:
         return {"ok": False, "error": f"mkdir failed: {r['stderr']}", "steps": steps}
 
-    # ── 4. SCP certs to staging /tmp dir (moodlesync owns /tmp) ─────────────
+    # ── 5. SCP certs to /tmp staging ──────────────────────────────────────────
     r = run_cmd([
         "scp", "-i", state.SSH_KEY_PATH,
         "-o", "StrictHostKeyChecking=accept-new",
@@ -381,51 +413,48 @@ def push_ssl_to_replica():
         f"{local_ssl_dir}/ca-cert.pem",
         f"{local_ssl_dir}/client-cert.pem",
         f"{local_ssl_dir}/client-key.pem",
-        f"{ssh_target}:{remote_staging}/",
+        f"{ssh_tgt}:{remote_staging}/",
     ], timeout=30)
-    steps.append({"step": "SCP certs to /tmp/mysql-ssl on replica",
-                  "ok": r["ok"], "err": r["stderr"]})
+    steps.append({"step": "SCP certs to /tmp/mysql-ssl", "ok": r["ok"], "err": r["stderr"]})
     if not r["ok"]:
         return {"ok": False, "error": f"SCP failed: {r['stderr']}", "steps": steps}
 
-    # ── 5. Move certs to final location + set permissions ───────────────────
+    # ── 6. Install certs + fix ownership/permissions ─────────────────────────
     if sudoers_ok:
-        move_cmd = (
+        install_cmd = (
             f"sudo cp {remote_staging}/ca-cert.pem {remote_staging}/client-cert.pem "
             f"{remote_staging}/client-key.pem {remote_ssl_dir}/ && "
             f"sudo chown -R mysql:mysql {remote_ssl_dir} && "
             f"sudo chmod 640 {remote_ssl_dir}/*.pem"
         )
     else:
-        move_cmd = (
+        install_cmd = (
             f"cp {remote_staging}/ca-cert.pem {remote_staging}/client-cert.pem "
             f"{remote_staging}/client-key.pem {remote_ssl_dir}/ && "
-            f"chmod 640 {remote_ssl_dir}/*.pem"
+            f"chmod 640 {remote_ssl_dir}/*.pem && "
+            # mysql process must be able to read these; grant read to others
+            f"chmod o+r {remote_ssl_dir}/*.pem"
         )
-
-    r = run_cmd(ssh_base + [move_cmd], timeout=20)
-    steps.append({"step": f"Install certs to {remote_ssl_dir}",
-                  "ok": r["ok"], "err": r["stderr"]})
+    r = _remote_run(sb, install_cmd, timeout=20)
+    steps.append({"step": f"Install certs to {remote_ssl_dir}", "ok": r["ok"], "err": r["stderr"]})
     if not r["ok"]:
-        return {"ok": False, "error": f"Install certs failed: {r['stderr']}", "steps": steps}
+        return {"ok": False, "error": f"Cert install failed: {r['stderr']}", "steps": steps}
 
-    # Persist the resolved cert path so configure_replica uses the right location
+    # Persist resolved path for configure_replica
     db_db.update_db_config_field("ssl_remote_dir", remote_ssl_dir)
-
     db_db.log_audit("push_ssl_to_replica", result="ok",
                     details={"host": replica_host, "ssl_dir": remote_ssl_dir})
-    return {
-        "ok": True,
-        "message": f"SSL certs installed to {remote_ssl_dir} on replica",
-        "ssl_dir": remote_ssl_dir,
-        "steps": steps
-    }
+    return {"ok": True, "message": f"SSL certs ready at {remote_ssl_dir} on replica",
+            "ssl_dir": remote_ssl_dir, "steps": steps}
 
 
 @router.post("/setup/configure-source")
 def configure_source():
     cfg = db_db.get_raw_db_config()
-    # Check if source is MariaDB — gtid_mode is MySQL-only; MariaDB uses gtid_strict_mode
+    steps = []
+
+    # ── 1. Detect DB flavour on source ────────────────────────────────────────
+    # Dashboard runs on the source server itself, so we connect locally
     conn_s, err_s = _get_mysql_conn(
         cfg.get("source_host", "127.0.0.1"), cfg.get("source_port", 3306),
         cfg.get("source_db_user", "root"), cfg.get("source_db_password", "")
@@ -435,43 +464,86 @@ def configure_source():
         try:
             cur = conn_s.cursor()
             cur.execute("SELECT VERSION()")
-            source_is_mariadb = "mariadb" in (cur.fetchone()[0] or "").lower()
+            v = (cur.fetchone()[0] or "").lower()
+            source_is_mariadb = "mariadb" in v
             conn_s.close()
         except Exception:
             pass
 
-    gtid_lines = (
-        "# MariaDB: GTID always on; gtid_strict_mode enforces consistency\ngtid_strict_mode = ON"
-        if source_is_mariadb else
-        "gtid_mode = ON\nenforce_gtid_consistency = ON"
-    )
+    db_type = "mariadb" if source_is_mariadb else "mysql"
+    svc_name = "mariadb" if source_is_mariadb else "mysql"
+    steps.append({"step": f"Detected source DB type: {db_type}", "ok": True, "err": ""})
 
-    mycnf_additions = f"""
-# === Moodle DR Replication Config ===
+    # ── 2. Build flavour-correct config ──────────────────────────────────────
+    if source_is_mariadb:
+        gtid_lines = "# MariaDB: GTID always on; gtid_strict_mode enforces consistency\ngtid_strict_mode = ON"
+        cnf_dir = "/etc/mysql/mariadb.conf.d"
+    else:
+        gtid_lines = "gtid_mode = ON\nenforce_gtid_consistency = ON"
+        cnf_dir = "/etc/mysql/mysql.conf.d"
+
+    mycnf_additions = f"""# === Moodle DR Source Replication Config (auto-generated) ===
+# DB type: {db_type}
 [mysqld]
-server-id = 1
-log_bin = /var/log/mysql/mysql-bin.log
-binlog_format = ROW
+server-id                = 1
+log_bin                  = /var/log/mysql/mysql-bin.log
+binlog_format            = ROW
 {gtid_lines}
-binlog_do_db = {cfg.get('moodle_db_name', 'moodle')}
-expire_logs_days = 7
-max_binlog_size = 100M
-ssl-ca = {cfg.get('ssl_ca_path', '/etc/mysql/ssl/ca-cert.pem')}
-ssl-cert = {cfg.get('ssl_cert_path', '/etc/mysql/ssl/client-cert.pem')}
-ssl-key = {cfg.get('ssl_key_path', '/etc/mysql/ssl/client-key.pem')}
+binlog_do_db             = {cfg.get('moodle_db_name', 'moodle')}
+expire_logs_days         = 7
+max_binlog_size          = 100M
+ssl-ca                   = {cfg.get('ssl_ca_path', '/etc/mysql/ssl/ca-cert.pem')}
+ssl-cert                 = {cfg.get('ssl_cert_path', '/etc/mysql/ssl/client-cert.pem')}
+ssl-key                  = {cfg.get('ssl_key_path', '/etc/mysql/ssl/client-key.pem')}
 """
+
+    # ── 3. Ensure /var/log/mysql exists and is owned by mysql ─────────────────
+    # MariaDB does NOT auto-create this; without it binlog startup fails.
     try:
-        # MariaDB uses mariadb.conf.d; fall back to mysql.conf.d if needed
-        mycnf_path = Path("/etc/mysql/mariadb.conf.d/moodle-dr-replication.cnf")
-        if not mycnf_path.parent.exists():
-            mycnf_path = Path("/etc/mysql/mysql.conf.d/moodle-dr-replication.cnf")
-        mycnf_path.parent.mkdir(parents=True, exist_ok=True)
-        mycnf_path.write_text(mycnf_additions)
-        db_db.log_audit("configure_source", result="ok")
-        return {"ok": True, "message": f"Source configuration written to {mycnf_path}", "config": mycnf_additions}
+        log_dir = Path("/var/log/mysql")
+        log_dir.mkdir(parents=True, exist_ok=True)
+        # chown mysql:mysql via subprocess (requires running as root)
+        r = run_cmd(["chown", "mysql:mysql", str(log_dir)])
+        steps.append({"step": "Create /var/log/mysql + chown mysql:mysql",
+                      "ok": r["ok"], "err": r["stderr"]})
     except Exception as e:
+        steps.append({"step": "Create /var/log/mysql", "ok": False, "err": str(e)})
+
+    # ── 4. Write cnf file ─────────────────────────────────────────────────────
+    try:
+        mycnf_path = Path(f"{cnf_dir}/moodle-dr-source.cnf")
+        if not mycnf_path.parent.exists():
+            # Fallback for MySQL layout
+            alt = Path("/etc/mysql/mysql.conf.d/moodle-dr-source.cnf")
+            alt.parent.mkdir(parents=True, exist_ok=True)
+            mycnf_path = alt
+        else:
+            mycnf_path.parent.mkdir(parents=True, exist_ok=True)
+        mycnf_path.write_text(mycnf_additions)
+        steps.append({"step": f"Write cnf to {mycnf_path}", "ok": True, "err": ""})
+    except Exception as e:
+        steps.append({"step": "Write cnf", "ok": False, "err": str(e)})
         db_db.log_audit("configure_source", result="error", details={"error": str(e)})
-        return {"ok": False, "error": str(e)}
+        return {"ok": False, "error": str(e), "steps": steps}
+
+    # ── 5. Auto-restart source DB service ────────────────────────────────────
+    r = run_cmd(["systemctl", "restart", svc_name], timeout=30)
+    steps.append({"step": f"Restart {svc_name} on source", "ok": r["ok"], "err": r["stderr"]})
+    if r["ok"]:
+        # Verify it came up
+        r2 = run_cmd(["systemctl", "is-active", svc_name], timeout=10)
+        steps.append({"step": f"{svc_name} service active",
+                      "ok": "active" in r2["stdout"], "err": r2["stdout"]})
+
+    db_db.log_audit("configure_source", result="ok",
+                    details={"db_type": db_type, "cnf": str(mycnf_path)})
+    return {
+        "ok": True,
+        "message": f"Source {db_type} configured at {mycnf_path} and restarted",
+        "config": mycnf_additions,
+        "db_type": db_type,
+        "steps": steps,
+    }
 
 
 @router.post("/setup/configure-replica")
@@ -481,104 +553,105 @@ def configure_replica():
     if not replica_host:
         return {"ok": False, "error": "Replica host not configured"}
 
-    # Use the cert path that was actually resolved during push-ssl step
-    ssl_dir = cfg.get("ssl_remote_dir", "/etc/mysql/ssl")
     ssh_user = state.AZURE_VM_USER
-    ssh_target = f"{ssh_user}@{replica_host}"
-    ssh_base = [
-        "ssh", "-i", state.SSH_KEY_PATH,
-        "-o", "StrictHostKeyChecking=accept-new",
-        "-o", "BatchMode=yes",
-        "-o", "ConnectTimeout=10",
-        ssh_target,
-    ]
+    sb       = _ssh_base(replica_host)
+    ssl_dir  = cfg.get("ssl_remote_dir", "/etc/mysql/ssl")
+    steps    = []
 
-    # Detect whether replica is MariaDB to use correct variable names
-    # gtid_mode / enforce_gtid_consistency are MySQL-only.
-    # MariaDB has GTID always on; use gtid_strict_mode instead.
-    conn_r, err_r = _get_mysql_conn(
+    # ── 1. Detect DB flavour via SSH (MariaDB vs MySQL) ───────────────────────
+    # Try connecting; fall back to SSH version string if port not open yet
+    db_type = _detect_db_type(
         replica_host, cfg.get("replica_port", 3306),
         cfg.get("replica_db_user", "root"), cfg.get("replica_db_password", "")
     )
-    replica_is_mariadb = False
-    if not err_r:
-        try:
-            cur = conn_r.cursor()
-            cur.execute("SELECT VERSION()")
-            replica_is_mariadb = "mariadb" in (cur.fetchone()[0] or "").lower()
-            conn_r.close()
-        except Exception:
-            pass
+    if db_type == "unknown":
+        # Read version string via SSH as fallback
+        r = _remote_run(sb, "mariadbd --version 2>&1 || mysqld --version 2>&1", timeout=10)
+        db_type = "mariadb" if "mariadb" in r["stdout"].lower() else "mysql"
+    steps.append({"step": f"Detected DB type: {db_type}", "ok": True, "err": ""})
 
-    if replica_is_mariadb:
-        gtid_lines = "# MariaDB: GTID always enabled, gtid_strict_mode enforces consistency\ngtid_strict_mode = ON"
-        parallel_lines = "slave_parallel_workers = 4\nslave_parallel_mode = optimistic"
+    # ── 2. Build DB-flavour-specific config ────────────────────────────────
+    if db_type == "mariadb":
+        gtid_line     = "gtid_strict_mode         = ON"
+        parallel_lines = "slave_parallel_workers   = 4\nslave_parallel_mode      = optimistic"
+        svc_name      = "mariadb"
+        cnf_dir       = "/etc/mysql/mariadb.conf.d"
     else:
-        gtid_lines = "gtid_mode = ON\nenforce_gtid_consistency = ON"
-        parallel_lines = "replica_parallel_workers = 4\nreplica_parallel_type = LOGICAL_CLOCK"
+        gtid_line     = "gtid_mode                = ON\nenforce_gtid_consistency = ON"
+        parallel_lines = "replica_parallel_workers = 4\nreplica_parallel_type    = LOGICAL_CLOCK"
+        svc_name      = "mysql"
+        cnf_dir       = "/etc/mysql/mysql.conf.d"
 
-    mycnf_content = f"""# === Moodle DR Replica Config (generated by Moodle DR dashboard) ===
+    cnf_path_system = f"{cnf_dir}/moodle-dr-replica.cnf"
+    cnf_path_home   = f"/home/{ssh_user}/moodle-dr-replica.cnf"
+    staging         = "/tmp/moodle-dr-replica.cnf"
+
+    mycnf_content = f"""# === Moodle DR Replica Config (auto-generated) ===
+# DB type: {db_type}
 [mysqld]
-server-id = 2
-relay-log = /var/log/mysql/mysql-relay-bin.log
-log_bin = /var/log/mysql/mysql-bin.log
-binlog_format = ROW
-{gtid_lines}
-read_only = ON
+server-id                = 2
+relay-log                = /var/log/mysql/mysql-relay-bin.log
+log_bin                  = /var/log/mysql/mysql-bin.log
+binlog_format            = ROW
+{gtid_line}
+read_only                = ON
 {parallel_lines}
-ssl-ca = {ssl_dir}/ca-cert.pem
-ssl-cert = {ssl_dir}/client-cert.pem
-ssl-key = {ssl_dir}/client-key.pem
+ssl-ca                   = {ssl_dir}/ca-cert.pem
+ssl-cert                 = {ssl_dir}/client-cert.pem
+ssl-key                  = {ssl_dir}/client-key.pem
 """
 
-    steps = []
-    # Determine target cnf path — try /etc/mysql/mysql.conf.d/ first, fall back to
-    # /home/moodlesync/ if sudo is unavailable
-    # MariaDB on Ubuntu uses mariadb.conf.d; MySQL uses mysql.conf.d
-    # Try mariadb.conf.d first (correct for MariaDB), fall back to mysql.conf.d
-    cnf_path_system = "/etc/mysql/mariadb.conf.d/moodle-dr-replica.cnf"
-    cnf_path_home   = f"/home/{ssh_user}/moodle-dr-replica.cnf"
+    # ── 3. Pre-flight: ensure /var/log/mysql exists + is owned by mysql ──────
+    r = _remote_run(sb,
+        "sudo mkdir -p /var/log/mysql && sudo chown mysql:mysql /var/log/mysql",
+        timeout=15)
+    steps.append({"step": "Ensure /var/log/mysql exists", "ok": r["ok"], "err": r["stderr"]})
+    # Non-fatal — continue even if sudo fails (may already exist)
 
-    # Write cnf to staging /tmp via stdin pipe (no sudo needed)
-    staging = "/tmp/moodle-dr-replica.cnf"
-    try:
-        proc = subprocess.run(
-            ssh_base + [f"cat > {staging}"],
-            input=mycnf_content, capture_output=True, text=True, timeout=15
-        )
-        steps.append({"step": f"Write cnf to {staging}", "ok": proc.returncode == 0,
-                      "err": proc.stderr.strip()})
-        if proc.returncode != 0:
-            return {"ok": False, "error": f"Could not write staging cnf: {proc.stderr}", "steps": steps}
-    except Exception as e:
-        return {"ok": False, "error": str(e), "steps": steps}
+    # ── 4. Write cnf to staging via stdin pipe ─────────────────────────────
+    r = _remote_run(sb, f"cat > {staging}", input_data=mycnf_content, timeout=15)
+    steps.append({"step": f"Write cnf to {staging}", "ok": r["ok"], "err": r["stderr"]})
+    if not r["ok"]:
+        return {"ok": False, "error": f"Could not write staging cnf: {r['stderr']}", "steps": steps}
 
-    # Try sudo cp to system path
-    r_sys = run_cmd(
-        ssh_base + [f"sudo mkdir -p /etc/mysql/mysql.conf.d && sudo cp {staging} {cnf_path_system}"],
-        timeout=15
-    )
-    if r_sys["ok"]:
+    # ── 5. Install cnf to system path via sudo ────────────────────────────
+    r = _remote_run(sb,
+        f"sudo mkdir -p {cnf_dir} && sudo cp {staging} {cnf_path_system}",
+        timeout=15)
+    if r["ok"]:
         cnf_final = cnf_path_system
-        steps.append({"step": f"Install cnf to {cnf_path_system}", "ok": True, "err": ""})
+        steps.append({"step": f"Installed cnf to {cnf_path_system}", "ok": True, "err": ""})
     else:
-        # Fall back: leave cnf in home dir and note it
-        r_home = run_cmd(ssh_base + [f"cp {staging} {cnf_path_home}"], timeout=10)
+        # Fall back to home dir
+        r2 = _remote_run(sb, f"cp {staging} {cnf_path_home}", timeout=10)
         cnf_final = cnf_path_home
-        steps.append({"step": f"sudo failed — cnf saved to {cnf_path_home}",
-                      "ok": r_home["ok"],
-                      "err": f"To activate: sudo cp {cnf_path_home} {cnf_path_system} && sudo systemctl restart mariadb"})
-        if not r_home["ok"]:
-            db_db.log_audit("configure_replica", result="error", details={"host": replica_host})
-            return {"ok": False, "error": r_home["stderr"], "steps": steps}
+        steps.append({"step": f"sudo unavailable — cnf at {cnf_path_home}",
+                      "ok": r2["ok"], "err": r["stderr"]})
+        if not r2["ok"]:
+            return {"ok": False, "error": r2["stderr"], "steps": steps}
 
-    db_db.log_audit("configure_replica", result="ok", details={"host": replica_host, "cnf": cnf_final})
+    # ── 6. Restart DB service automatically ────────────────────────────────
+    if cnf_final == cnf_path_system:
+        r = _remote_run(sb, f"sudo systemctl restart {svc_name}", timeout=30)
+        steps.append({"step": f"Restart {svc_name} on replica", "ok": r["ok"], "err": r["stderr"]})
+        if r["ok"]:
+            # Verify it came up
+            r2 = _remote_run(sb, f"systemctl is-active {svc_name}", timeout=10)
+            steps.append({"step": f"{svc_name} service status",
+                          "ok": "active" in r2["stdout"],
+                          "err": r2["stdout"]})
+
+    db_db.log_audit("configure_replica", result="ok",
+                    details={"host": replica_host, "cnf": cnf_final, "db_type": db_type})
     needs_manual = cnf_final != cnf_path_system
-    msg = (f"Config saved to {cnf_final}. MANUAL STEP NEEDED: "
-           f"sudo cp {cnf_final} {cnf_path_system} && sudo systemctl restart mariadb"
-           if needs_manual else
-           f"Replica config written to {cnf_path_system}. Run: sudo systemctl restart mariadb on replica")
-    return {"ok": True, "message": msg, "cnf_path": cnf_final, "steps": steps}
+    msg = (
+        f"cnf saved to {cnf_path_home}. Run manually on replica: "
+        f"sudo cp {cnf_path_home} {cnf_path_system} && sudo systemctl restart {svc_name}"
+        if needs_manual else
+        f"{db_type} replica configured and restarted successfully"
+    )
+    return {"ok": True, "message": msg, "cnf_path": cnf_final,
+            "db_type": db_type, "steps": steps}
 
 
 @router.post("/setup/auto-configure")
