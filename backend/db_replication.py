@@ -380,17 +380,25 @@ def _ssh_base(host: str) -> list:
 
 
 def _remote_run(ssh_base: list, cmd: str, input_data: str = None, timeout: int = 20) -> dict:
-    """Run command on remote via SSH, optionally piping input_data through stdin.
-    NOTE: When SSH uses -tt (PTY), piping via subprocess stdin hangs because
-    the PTY never delivers EOF. Use _remote_write_file() for writing files instead.
+    """Run command on remote via SSH.
+    -tt forces PTY which merges stdout+stderr — capture_output=True conflicts with PTY
+    and causes 'Connection closed' immediately. Use stdout=PIPE + stderr=STDOUT instead.
+    stdin=DEVNULL prevents any accidental stdin interaction with the PTY.
     """
     try:
         proc = subprocess.run(
             ssh_base + [cmd],
-            input=input_data, capture_output=True, text=True, timeout=timeout
+            input=input_data.encode() if input_data else None,
+            stdin=subprocess.PIPE if input_data else subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,  # PTY merges stderr into stdout anyway
+            timeout=timeout
         )
-        return {"ok": proc.returncode == 0, "stdout": proc.stdout.strip(),
-                "stderr": proc.stderr.strip(), "returncode": proc.returncode}
+        out = proc.stdout.decode(errors='replace').strip()
+        return {"ok": proc.returncode == 0, "stdout": out,
+                "stderr": "", "returncode": proc.returncode}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "stdout": "", "stderr": "timed out", "returncode": -1}
     except Exception as e:
         return {"ok": False, "stdout": "", "stderr": str(e), "returncode": -1}
 
