@@ -457,16 +457,26 @@ def push_ssl_to_replica():
     # ── 3. Decide cert destination ────────────────────────────────────────────
     # If sudoers worked → /etc/mysql/ssl (proper system path, owned by mysql)
     # Otherwise → /home/moodlesync/mysql-ssl (moodlesync owns it — no sudo needed)
+    # Use /var/lib/mysql/ssl — mysql user OWNS /var/lib/mysql entirely.
+    # This is the canonical location per Ubuntu 24.04 MariaDB SSL guides.
+    # No chown fighting, no permission issues, no sudo needed for the dir.
+    # moodlesync SSHes in, sudo mkdir the subdir, then SCP directly as moodlesync
+    # since /var/lib/mysql/ssl will be chowned to mysql after creation.
+    # Regardless of sudoers: always use /var/lib/mysql/ssl via sudo mkdir.
+    # Fall back to ~/mysql-ssl only if sudo is completely unavailable.
     if sudoers_ok:
-        remote_ssl_dir = "/etc/mysql/ssl"
+        remote_ssl_dir = "/var/lib/mysql/ssl"
     else:
         remote_ssl_dir = f"/home/{ssh_user}/mysql-ssl"
 
-    # ── 4a. Create the SSL cert directory ────────────────────────────────────
-    # /etc/mysql/ssl is a system path — needs sudo
-    # ~/mysql-ssl is owned by moodlesync — no sudo needed
+    # ── 4a. Create cert directory ─────────────────────────────────────────────
     if sudoers_ok:
-        mkdir_cmd = f"sudo mkdir -p {remote_ssl_dir} && sudo chown mysql:mysql {remote_ssl_dir} && sudo chmod 750 {remote_ssl_dir}"
+        # /var/lib/mysql is owned by mysql — create subdir and set ownership
+        mkdir_cmd = (
+            f"sudo mkdir -p {remote_ssl_dir} && "
+            f"sudo chown mysql:mysql {remote_ssl_dir} && "
+            f"sudo chmod 750 {remote_ssl_dir}"
+        )
     else:
         mkdir_cmd = f"mkdir -p {remote_ssl_dir} && chmod 700 {remote_ssl_dir}"
     r = _remote_run(sb, mkdir_cmd, timeout=10)
@@ -474,52 +484,49 @@ def push_ssl_to_replica():
     if not r["ok"]:
         return {"ok": False, "error": f"mkdir {remote_ssl_dir} failed: {r['stderr']}", "steps": steps}
 
-    # ── 4b. Allow mysql process to traverse the home dir (o+x) ───────────────
-    # Only needed for home-dir path; non-fatal
+    # ── 4b. Allow mysql to traverse home dir (only needed without sudo) ───────
     if not sudoers_ok:
         r = _remote_run(sb, f"chmod o+x /home/{ssh_user}", timeout=10)
         steps.append({"step": f"chmod o+x /home/{ssh_user}", "ok": r["ok"], "err": r["stderr"]})
 
-    # ── 4c. Create /var/log/mysql (best-effort with sudo) ─────────────────────
+    # ── 4c. Create /var/log/mysql (best-effort) ───────────────────────────────
     r = _remote_run(sb,
         "sudo mkdir -p /var/log/mysql && sudo chown mysql:mysql /var/log/mysql",
         timeout=15)
-    steps.append({"step": "Create /var/log/mysql on replica",
-                  "ok": r["ok"], "err": r["stderr"]})
-    # Non-fatal — continue even if sudo fails
+    steps.append({"step": "Create /var/log/mysql on replica", "ok": r["ok"], "err": r["stderr"]})
+    # Non-fatal — continue even if this fails
 
-    # ── 5. Push certs to replica ───────────────────────────────────────────────
+    # ── 5. SCP certs directly to final destination ────────────────────────────
+    # /var/lib/mysql/ssl is owned by mysql:mysql (750).
+    # moodlesync cannot write there directly — use sudo tee for sudoers path,
+    # plain SCP for home dir path (moodlesync owns it).
     if sudoers_ok:
-        # System path (/etc/mysql/ssl) — write each cert via 'sudo tee'.
-        # Pipe local file content over SSH stdin directly into the destination.
-        # sudo tee is proven to work (used for sudoers bootstrap).
-        # No SCP+cp needed — eliminates all binary path-resolution issues.
+        # Pipe each cert over SSH stdin into sudo tee — proven reliable method
         for cert in ["ca-cert.pem", "client-cert.pem", "client-key.pem"]:
             try:
                 cert_content = Path(f"{local_ssl_dir}/{cert}").read_text()
             except Exception as e:
-                return {"ok": False,
-                        "error": f"Cannot read local {cert}: {e}",
-                        "steps": steps}
+                return {"ok": False, "error": f"Cannot read local {cert}: {e}", "steps": steps}
             r = _remote_run(sb,
-                f"sudo tee {remote_ssl_dir}/{cert}",
+                f"sudo tee {remote_ssl_dir}/{cert} > /dev/null",
                 input_data=cert_content,
                 timeout=15)
-            steps.append({"step": f"tee {cert} into {remote_ssl_dir}",
+            steps.append({"step": f"Write {cert} to {remote_ssl_dir}",
                           "ok": r["ok"], "err": r["stderr"]})
             if not r["ok"]:
                 return {"ok": False,
-                        "error": f"sudo tee {cert} failed: {r['stderr']}",
+                        "error": f"Failed to write {cert}: {r['stderr']}",
                         "steps": steps}
-        # Set ownership and permissions on each file explicitly
+        # Fix ownership + perms (mysql owns the dir, set 640 on files)
         for cert in ["ca-cert.pem", "client-cert.pem", "client-key.pem"]:
             _remote_run(sb,
                 f"sudo chown mysql:mysql {remote_ssl_dir}/{cert} && "
                 f"sudo chmod 640 {remote_ssl_dir}/{cert}",
                 timeout=10)
-        steps.append({"step": f"chown + chmod certs in {remote_ssl_dir}", "ok": True, "err": ""})
+        steps.append({"step": f"Set cert ownership/permissions in {remote_ssl_dir}",
+                      "ok": True, "err": ""})
     else:
-        # Home dir (~/mysql-ssl) — SCP directly, moodlesync owns it
+        # Home dir — moodlesync owns it, SCP directly
         r = run_cmd([
             "scp", "-i", state.SSH_KEY_PATH,
             "-o", "StrictHostKeyChecking=accept-new",
@@ -532,24 +539,20 @@ def push_ssl_to_replica():
         steps.append({"step": f"SCP certs to {remote_ssl_dir}", "ok": r["ok"], "err": r["stderr"]})
         if not r["ok"]:
             return {"ok": False, "error": f"SCP failed: {r['stderr']}", "steps": steps}
-        # chmod 644 so mysql process (other) can read
         r = _remote_run(sb, f"chmod 644 {remote_ssl_dir}/*.pem", timeout=10)
-        steps.append({"step": f"chmod 644 certs in {remote_ssl_dir}",
-                      "ok": r["ok"], "err": r["stderr"]})
+        steps.append({"step": f"chmod 644 certs", "ok": r["ok"], "err": r["stderr"]})
 
-    # ── Final verification: confirm all 3 cert files actually exist on replica ───
-    # Use 'sudo test' via 'sudo ls' — plain 'test -f' fails for /etc/mysql/ssl
-    # because moodlesync is 'other' and the dir is chmod 750 (other=no access).
+    # ── 6. Verify files exist (sudo stat — works regardless of dir permissions) ─
     for cert in ["ca-cert.pem", "client-cert.pem", "client-key.pem"]:
         r = _remote_run(sb,
-            f"sudo ls {remote_ssl_dir}/{cert} > /dev/null 2>&1 && echo ok || echo missing",
+            f"sudo stat {remote_ssl_dir}/{cert} > /dev/null 2>&1 && echo ok || echo missing",
             timeout=10)
         exists = "ok" in r["stdout"]
-        steps.append({"step": f"Verify {cert} on replica", "ok": exists,
-                      "err": "" if exists else f"{remote_ssl_dir}/{cert} not found after copy"})
+        steps.append({"step": f"Verify {cert} exists on replica", "ok": exists,
+                      "err": "" if exists else f"Not found: {remote_ssl_dir}/{cert}"})
         if not exists:
             return {"ok": False,
-                    "error": f"{cert} was not copied successfully to {remote_ssl_dir}",
+                    "error": f"{cert} missing from {remote_ssl_dir} after write",
                     "steps": steps}
 
     # Persist resolved path for configure_replica
@@ -668,13 +671,9 @@ def configure_replica():
     ssh_user = state.AZURE_VM_USER
     sb       = _ssh_base(replica_host)
     # ssl_remote_dir is saved by push_ssl_to_replica.
-    # If it's still the default /etc/mysql/ssl, that dir likely doesn't exist on the replica
-    # (it lives on the source). Fall back to the known pushed location ~/mysql-ssl.
+    # Canonical location on Ubuntu 24.04 MariaDB is /var/lib/mysql/ssl.
     ssl_dir_raw = cfg.get("ssl_remote_dir", "")
-    if not ssl_dir_raw or ssl_dir_raw == "/etc/mysql/ssl":
-        ssl_dir = f"/home/{state.AZURE_VM_USER}/mysql-ssl"
-    else:
-        ssl_dir = ssl_dir_raw
+    ssl_dir = ssl_dir_raw if ssl_dir_raw else "/var/lib/mysql/ssl"
     steps    = []
 
     # ── 1. Detect DB flavour via SSH (MariaDB vs MySQL) ───────────────────────
