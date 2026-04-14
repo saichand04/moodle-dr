@@ -466,7 +466,7 @@ def push_ssl_to_replica():
     # /etc/mysql/ssl is a system path — needs sudo
     # ~/mysql-ssl is owned by moodlesync — no sudo needed
     if sudoers_ok:
-        mkdir_cmd = f"sudo mkdir -p {remote_ssl_dir} && sudo chmod 750 {remote_ssl_dir}"
+        mkdir_cmd = f"sudo mkdir -p {remote_ssl_dir} && sudo chown mysql:mysql {remote_ssl_dir} && sudo chmod 750 {remote_ssl_dir}"
     else:
         mkdir_cmd = f"mkdir -p {remote_ssl_dir} && chmod 700 {remote_ssl_dir}"
     r = _remote_run(sb, mkdir_cmd, timeout=10)
@@ -490,25 +490,10 @@ def push_ssl_to_replica():
 
     # ── 5. Push certs to replica ───────────────────────────────────────────────
     if sudoers_ok:
-        # System path (/etc/mysql/ssl) — SCP to /tmp first, then sudo cp
-        remote_staging = "/tmp/mysql-ssl-staging"
-        r = _remote_run(sb, f"mkdir -p {remote_staging}", timeout=10)
-        steps.append({"step": f"Create staging dir {remote_staging}", "ok": r["ok"], "err": r["stderr"]})
-        r = run_cmd([
-            "scp", "-i", state.SSH_KEY_PATH,
-            "-o", "StrictHostKeyChecking=accept-new",
-            "-o", "BatchMode=yes",
-            f"{local_ssl_dir}/ca-cert.pem",
-            f"{local_ssl_dir}/client-cert.pem",
-            f"{local_ssl_dir}/client-key.pem",
-            f"{ssh_tgt}:{remote_staging}/",
-        ], timeout=30)
-        steps.append({"step": f"SCP certs to {remote_staging}", "ok": r["ok"], "err": r["stderr"]})
-        if not r["ok"]:
-            return {"ok": False, "error": f"SCP failed: {r['stderr']}", "steps": steps}
-        # Write each cert via 'sudo tee' — pipe local file content over SSH stdin.
-        # sudo tee is already proven to work (used for sudoers bootstrap).
-        # This avoids all sudo cp / binary path-resolution issues entirely.
+        # System path (/etc/mysql/ssl) — write each cert via 'sudo tee'.
+        # Pipe local file content over SSH stdin directly into the destination.
+        # sudo tee is proven to work (used for sudoers bootstrap).
+        # No SCP+cp needed — eliminates all binary path-resolution issues.
         for cert in ["ca-cert.pem", "client-cert.pem", "client-key.pem"]:
             try:
                 cert_content = Path(f"{local_ssl_dir}/{cert}").read_text()
@@ -553,8 +538,12 @@ def push_ssl_to_replica():
                       "ok": r["ok"], "err": r["stderr"]})
 
     # ── Final verification: confirm all 3 cert files actually exist on replica ───
+    # Use 'sudo test' via 'sudo ls' — plain 'test -f' fails for /etc/mysql/ssl
+    # because moodlesync is 'other' and the dir is chmod 750 (other=no access).
     for cert in ["ca-cert.pem", "client-cert.pem", "client-key.pem"]:
-        r = _remote_run(sb, f"test -f {remote_ssl_dir}/{cert} && echo ok || echo missing", timeout=10)
+        r = _remote_run(sb,
+            f"sudo ls {remote_ssl_dir}/{cert} > /dev/null 2>&1 && echo ok || echo missing",
+            timeout=10)
         exists = "ok" in r["stdout"]
         steps.append({"step": f"Verify {cert} on replica", "ok": exists,
                       "err": "" if exists else f"{remote_ssl_dir}/{cert} not found after copy"})
