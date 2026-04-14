@@ -414,10 +414,25 @@ def _remote_write_file(ssh_base: list, content: str, remote_path: str,
     """Write content to a remote file without using subprocess stdin pipe.
     Encodes content as base64 and embeds it in the SSH command string.
     This avoids the -tt PTY + stdin EOF hang that breaks 'sudo tee' and 'cat >'.
+
+    When use_sudo=True, writes to a staging file in the user's home dir first
+    (no sudo needed), then uses 'sudo cp' to place it. This avoids 'sudo tee'
+    in pipelines where sudo doesn't get proper PTY access inside a pipe chain.
+    'sudo cp' is in the sudoers allowed list and works reliably as a standalone command.
     """
     b64 = base64.b64encode(content.encode()).decode()
-    tee = "sudo tee" if use_sudo else "tee"
-    cmd = f"echo '{b64}' | base64 -d | {tee} {remote_path} > /dev/null"
+    staging = "~/.mdr_staging_file"
+    if use_sudo:
+        # 1) decode base64 to staging in user's home (writable, no sudo)
+        # 2) sudo cp to final destination (reliable, not in a pipeline)
+        # 3) clean up staging
+        cmd = (
+            f"printf '%s' '{b64}' | base64 -d > {staging} && "
+            f"sudo cp {staging} {remote_path} && "
+            f"rm -f {staging}"
+        )
+    else:
+        cmd = f"printf '%s' '{b64}' | base64 -d > {remote_path}"
     return _remote_run(ssh_base, cmd, timeout=timeout)
 
 
