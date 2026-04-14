@@ -210,6 +210,15 @@ canvas.chart{width:100%;height:100%}
 .pw-wrap{position:relative} .pw-wrap .input{padding-right:36px}
 .pw-eye{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text3);display:flex;align-items:center}
 .danger-zone{border:1px solid var(--red-bd);border-radius:var(--r2);padding:16px;background:var(--red-bg)}
+.adv-step-btn{position:relative;transition:box-shadow .3s,border-color .3s,color .3s}
+.adv-step-btn.step-ok{border-color:var(--green)!important;color:var(--green)!important;box-shadow:0 0 0 2px rgba(52,211,153,.25),0 0 10px rgba(52,211,153,.2)}
+.adv-step-btn.step-ok::after{content:'\2713';margin-left:6px;font-size:11px}
+.adv-step-btn.step-err{border-color:var(--red)!important;color:var(--red)!important;box-shadow:0 0 0 2px rgba(248,113,113,.25)}
+.adv-step-btn.step-err::after{content:'\2717';margin-left:6px;font-size:11px}
+.adv-step-btn.step-running{border-color:var(--cyan)!important;color:var(--cyan)!important;box-shadow:0 0 8px rgba(34,211,238,.3);animation:pulse-cyan 1s ease-in-out infinite}
+@keyframes pulse-cyan{0%,100%{box-shadow:0 0 8px rgba(34,211,238,.3)}50%{box-shadow:0 0 16px rgba(34,211,238,.5)}}
+.step-arrow{font-size:22px;color:var(--text4);transition:color .4s,text-shadow .4s;line-height:1;padding:0 2px;user-select:none}
+.step-arrow.arrow-lit{color:var(--green);text-shadow:0 0 8px rgba(52,211,153,.6)}
 .danger-zone-title{font-size:12px;font-weight:600;color:var(--red);margin-bottom:10px;display:flex;align-items:center;gap:6px;text-transform:uppercase;letter-spacing:.06em}
 .empty-state{text-align:center;padding:40px 20px;color:var(--text3);font-size:13px}
 .spinning{animation:spin .8s linear infinite}
@@ -1881,12 +1890,18 @@ function pageDbSettings() {
     </div>
     <div id="dbSettingsResult" style="margin-top:12px"></div></div>
     <div class="panel"><div class="panel-title">${ICONS.settings} Advanced Setup Steps</div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button class="btn btn-ghost btn-sm" onclick="runStep('create-repl-user')">Create Repl User</button>
-      <button class="btn btn-ghost btn-sm" onclick="runStep('generate-ssl-certs')">Generate SSL</button>
-      <button class="btn btn-ghost btn-sm" onclick="runStep('push-ssl-to-replica')">Push SSL to Replica</button>
-      <button class="btn btn-ghost btn-sm" onclick="runStep('configure-source')">Configure Source</button>
-      <button class="btn btn-ghost btn-sm" onclick="runStep('configure-replica')">Configure Replica</button>
+    <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-bottom:4px">
+      <button class="btn btn-ghost btn-sm adv-step-btn" id="stepBtn-create-repl-user" onclick="runStep('create-repl-user',this)">Create Repl User</button>
+      <span class="step-arrow" id="arrow-0">&#8250;</span>
+      <button class="btn btn-ghost btn-sm adv-step-btn" id="stepBtn-generate-ssl-certs" onclick="runStep('generate-ssl-certs',this)">Generate SSL</button>
+      <span class="step-arrow" id="arrow-1">&#8250;</span>
+      <button class="btn btn-ghost btn-sm adv-step-btn" id="stepBtn-push-ssl-to-replica" onclick="runStep('push-ssl-to-replica',this)">Push SSL to Replica</button>
+      <span class="step-arrow" id="arrow-2">&#8250;</span>
+      <button class="btn btn-ghost btn-sm adv-step-btn" id="stepBtn-configure-source" onclick="runStep('configure-source',this)">Configure Source</button>
+      <span class="step-arrow" id="arrow-3">&#8250;</span>
+      <button class="btn btn-ghost btn-sm adv-step-btn" id="stepBtn-configure-replica" onclick="runStep('configure-replica',this)">Configure Replica</button>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
       <button class="btn btn-ghost btn-sm" onclick="startPtHeartbeat()">Start pt-heartbeat</button>
       <button class="btn btn-ghost btn-sm" onclick="stopPtHeartbeat()">Stop pt-heartbeat</button>
       <button class="btn btn-ghost btn-sm" onclick="runPtChecksum()">Run pt-checksum</button>
@@ -1923,11 +1938,41 @@ async function testReplicaDb(){
     <div class="banner-text"><div class="banner-title">${r.ok?'Replica MySQL connected':'Replica connection failed'}</div>
     <div class="banner-body">${r.ok?`Version: ${r.version}, read_only: ${r.read_only}`:escHtml(r.error)}</div></div></div>`;
 }
-async function runStep(step){
-  const r=await apiPost(`/api/db/setup/${step}`,{});const el=document.getElementById('advStepResult');
+const ADV_STEP_ORDER=['create-repl-user','generate-ssl-certs','push-ssl-to-replica','configure-source','configure-replica'];
+async function runStep(step, btnEl){
+  // Mark running
+  const btn = btnEl || document.getElementById('stepBtn-'+step);
+  if(btn){ btn.classList.remove('step-ok','step-err'); btn.classList.add('step-running'); btn.disabled=true; }
+  const r=await apiPost(`/api/db/setup/${step}`,{});
+  // Mark result on button
+  if(btn){
+    btn.classList.remove('step-running');
+    btn.classList.add(r.ok?'step-ok':'step-err');
+    btn.disabled=false;
+  }
+  // Light up the arrow after this step if success
+  if(r.ok){
+    const idx=ADV_STEP_ORDER.indexOf(step);
+    if(idx>=0){
+      const arrow=document.getElementById('arrow-'+idx);
+      if(arrow) arrow.classList.add('arrow-lit');
+    }
+  }
+  // Show result banner with sub-steps if available
+  const el=document.getElementById('advStepResult');
+  let subStepsHtml='';
+  if(r.steps&&r.steps.length){
+    subStepsHtml='<ul style="margin:6px 0 0 16px;font-size:11px;list-style:none;padding:0">';
+    r.steps.forEach(s=>{
+      const ic=s.ok?'\u2713':'\u2717';
+      const cl=s.ok?'color:var(--green)':'color:var(--red)';
+      subStepsHtml+=`<li style="${cl};margin-bottom:2px">${ic} ${escHtml(s.step)}${s.err&&!s.ok?' — '+escHtml(s.err):''}</li>`;
+    });
+    subStepsHtml+='</ul>';
+  }
   if(el) el.innerHTML=`<div class="banner ${r.ok?'banner-ok':'banner-err'}"><div class="banner-icon">${r.ok?ICONS.check:ICONS.alert}</div>
     <div class="banner-text"><div class="banner-title">${step}: ${r.ok?'OK':'Failed'}</div>
-    <div class="banner-body">${escHtml(r.message||r.error||'')}</div></div></div>`;
+    <div class="banner-body">${escHtml(r.message||r.error||'')}${subStepsHtml}</div></div></div>`;
 }
 async function startPtHeartbeat(){const r=await apiPost('/api/db/pt/start-heartbeat',{});showToast(r.message||r.error||'','ok');}
 async function stopPtHeartbeat(){const r=await apiPost('/api/db/pt/stop-heartbeat',{});showToast(r.message||r.error||'','ok');}

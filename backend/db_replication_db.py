@@ -194,6 +194,23 @@ def get_raw_db_config() -> dict:
     return dict(row) if row else {}
 
 
+def update_db_config_field(field: str, value):
+    """Update a single column in the db_replication_config row (best-effort)."""
+    allowed = {
+        "ssl_ca_path", "ssl_cert_path", "ssl_key_path", "ssl_remote_dir",
+        "source_host", "replica_host", "seed_method"
+    }
+    if field not in allowed:
+        return
+    conn = sqlite3.connect(DB_PATH)
+    existing = conn.execute("SELECT id FROM db_replication_config LIMIT 1").fetchone()
+    if existing:
+        conn.execute(f"UPDATE db_replication_config SET {field}=? WHERE id=?",
+                     (value, existing[0]))
+        conn.commit()
+    conn.close()
+
+
 def get_checksum_results(n: int = 20) -> list:
     """Get recent pt-table-checksum results from audit log."""
     conn = sqlite3.connect(DB_PATH)

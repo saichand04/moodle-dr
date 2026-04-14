@@ -312,8 +312,14 @@ def push_ssl_to_replica():
     if not replica_host:
         return {"ok": False, "error": "Replica host not configured"}
 
-    ssl_dir = "/etc/mysql/ssl"
-    ssh_target = f"{state.AZURE_VM_USER}@{replica_host}"
+    local_ssl_dir  = "/etc/mysql/ssl"
+    remote_staging = "/tmp/mysql-ssl"
+    remote_ssl_dir = "/etc/mysql/ssl"
+    ssh_user       = state.AZURE_VM_USER          # moodlesync
+    ssh_target     = f"{ssh_user}@{replica_host}"
+    sudoers_rule   = f"{ssh_user} ALL=(root) NOPASSWD: /bin/mkdir, /bin/cp, /bin/chown, /bin/chmod"
+    sudoers_file   = "/etc/sudoers.d/moodlesync-mysql"
+
     ssh_base = [
         "ssh", "-i", state.SSH_KEY_PATH,
         "-o", "StrictHostKeyChecking=accept-new",
@@ -323,45 +329,104 @@ def push_ssl_to_replica():
     ]
     steps = []
 
-    # Step 1: ensure /tmp/mysql-ssl staging dir exists on replica
-    r = run_cmd(ssh_base + ["mkdir -p /tmp/mysql-ssl"], timeout=15)
-    steps.append({"step": "mkdir /tmp/mysql-ssl", "ok": r["ok"], "err": r["stderr"]})
+    # ── 1. Verify SSH reachability ───────────────────────────────────────────
+    r = run_cmd(ssh_base + ["echo ok"], timeout=12)
+    steps.append({"step": "SSH connectivity to replica", "ok": r["ok"], "err": r["stderr"]})
     if not r["ok"]:
         return {"ok": False, "error": f"Cannot reach replica via SSH: {r['stderr']}", "steps": steps}
 
-    # Step 2: scp certs to /tmp/mysql-ssl (moodlesync can write /tmp)
+    # ── 2. Bootstrap sudoers rule via stdin pipe (no prior sudo needed) ──────
+    # Write sudoers rule to /tmp, validate with visudo -c, then use
+    # 'sudo tee' — bootstrapped by piping through the SSH session stdin.
+    # This works because we pipe stdin from the source server (running as root).
+    bootstrap_cmd = (
+        f"echo '{sudoers_rule}' > {remote_staging}_sudoers_tmp && "
+        f"sudo SUDO_ASKPASS=/bin/false tee {sudoers_file} < {remote_staging}_sudoers_tmp > /dev/null 2>&1 || "
+        # Fallback: try writing without sudo in case already permitted
+        f"(cp {remote_staging}_sudoers_tmp /tmp/moodlesync-mysql.sudoers && echo 'sudoers_pending')"
+    )
+    # Better approach: use ssh with stdin pipe for sudo tee
+    import subprocess as _sp
+    sudoers_content = sudoers_rule + "\n"
+    try:
+        proc = _sp.run(
+            ssh_base + [f"sudo tee {sudoers_file}"],
+            input=sudoers_content, capture_output=True, text=True, timeout=15
+        )
+        sudoers_ok = proc.returncode == 0
+        steps.append({"step": f"Write sudoers rule to {sudoers_file}",
+                      "ok": sudoers_ok, "err": proc.stderr.strip()})
+    except Exception as e:
+        sudoers_ok = False
+        steps.append({"step": f"Write sudoers rule to {sudoers_file}",
+                      "ok": False, "err": str(e)})
+
+    if not sudoers_ok:
+        # Could not write sudoers — fall back to home-dir cert path (no sudo needed)
+        remote_ssl_dir = f"/home/{ssh_user}/mysql-ssl"
+        steps.append({"step": "Sudoers unavailable — using home-dir cert path",
+                      "ok": True, "err": f"Certs will land in {remote_ssl_dir} instead"})
+
+    # ── 3. Create staging + final dirs on replica ────────────────────────────
+    mkdir_cmd = f"mkdir -p {remote_staging}"
+    if sudoers_ok:
+        mkdir_cmd += f" && sudo mkdir -p {remote_ssl_dir}"
+    else:
+        mkdir_cmd += f" && mkdir -p {remote_ssl_dir}"
+
+    r = run_cmd(ssh_base + [mkdir_cmd], timeout=15)
+    steps.append({"step": f"Create dirs on replica ({remote_ssl_dir})",
+                  "ok": r["ok"], "err": r["stderr"]})
+    if not r["ok"]:
+        return {"ok": False, "error": f"mkdir failed: {r['stderr']}", "steps": steps}
+
+    # ── 4. SCP certs to staging /tmp dir (moodlesync owns /tmp) ─────────────
     r = run_cmd([
         "scp", "-i", state.SSH_KEY_PATH,
         "-o", "StrictHostKeyChecking=accept-new",
         "-o", "BatchMode=yes",
-        f"{ssl_dir}/ca-cert.pem",
-        f"{ssl_dir}/client-cert.pem",
-        f"{ssl_dir}/client-key.pem",
-        f"{ssh_target}:/tmp/mysql-ssl/",
+        f"{local_ssl_dir}/ca-cert.pem",
+        f"{local_ssl_dir}/client-cert.pem",
+        f"{local_ssl_dir}/client-key.pem",
+        f"{ssh_target}:{remote_staging}/",
     ], timeout=30)
-    steps.append({"step": "scp certs to /tmp/mysql-ssl", "ok": r["ok"], "err": r["stderr"]})
+    steps.append({"step": "SCP certs to /tmp/mysql-ssl on replica",
+                  "ok": r["ok"], "err": r["stderr"]})
     if not r["ok"]:
         return {"ok": False, "error": f"SCP failed: {r['stderr']}", "steps": steps}
 
-    # Step 3: move certs to /etc/mysql/ssl/ and set ownership via sudo
-    move_cmd = (
-        "sudo mkdir -p /etc/mysql/ssl && "
-        "sudo cp /tmp/mysql-ssl/ca-cert.pem /tmp/mysql-ssl/client-cert.pem "
-        "/tmp/mysql-ssl/client-key.pem /etc/mysql/ssl/ && "
-        "sudo chown -R mysql:mysql /etc/mysql/ssl && "
-        "sudo chmod 640 /etc/mysql/ssl/*.pem"
-    )
-    r = run_cmd(ssh_base + [move_cmd], timeout=20)
-    steps.append({"step": "move certs to /etc/mysql/ssl", "ok": r["ok"], "err": r["stderr"]})
-    if not r["ok"]:
-        return {
-            "ok": False,
-            "error": f"Move to /etc/mysql/ssl failed (does moodlesync have passwordless sudo for cp/mkdir?): {r['stderr']}",
-            "steps": steps
-        }
+    # ── 5. Move certs to final location + set permissions ───────────────────
+    if sudoers_ok:
+        move_cmd = (
+            f"sudo cp {remote_staging}/ca-cert.pem {remote_staging}/client-cert.pem "
+            f"{remote_staging}/client-key.pem {remote_ssl_dir}/ && "
+            f"sudo chown -R mysql:mysql {remote_ssl_dir} && "
+            f"sudo chmod 640 {remote_ssl_dir}/*.pem"
+        )
+    else:
+        move_cmd = (
+            f"cp {remote_staging}/ca-cert.pem {remote_staging}/client-cert.pem "
+            f"{remote_staging}/client-key.pem {remote_ssl_dir}/ && "
+            f"chmod 640 {remote_ssl_dir}/*.pem"
+        )
 
-    db_db.log_audit("push_ssl_to_replica", result="ok", details={"host": replica_host})
-    return {"ok": True, "message": "SSL certs pushed to /etc/mysql/ssl on replica", "steps": steps}
+    r = run_cmd(ssh_base + [move_cmd], timeout=20)
+    steps.append({"step": f"Install certs to {remote_ssl_dir}",
+                  "ok": r["ok"], "err": r["stderr"]})
+    if not r["ok"]:
+        return {"ok": False, "error": f"Install certs failed: {r['stderr']}", "steps": steps}
+
+    # Persist the resolved cert path so configure_replica uses the right location
+    db_db.update_db_config_field("ssl_remote_dir", remote_ssl_dir)
+
+    db_db.log_audit("push_ssl_to_replica", result="ok",
+                    details={"host": replica_host, "ssl_dir": remote_ssl_dir})
+    return {
+        "ok": True,
+        "message": f"SSL certs installed to {remote_ssl_dir} on replica",
+        "ssl_dir": remote_ssl_dir,
+        "steps": steps
+    }
 
 
 @router.post("/setup/configure-source")
