@@ -358,6 +358,33 @@ def push_ssl_to_replica():
     sb             = _ssh_base(replica_host)
     steps          = []
 
+    # ── 0. Validate local certs before pushing ────────────────────────────────
+    # Catch the 'OpenSSH private key instead of RSA PEM' class of bugs early.
+    key_path = f"{local_ssl_dir}/client-key.pem"
+    ca_path  = f"{local_ssl_dir}/ca-cert.pem"
+    cert_path = f"{local_ssl_dir}/client-cert.pem"
+    missing = [p for p in [key_path, ca_path, cert_path] if not Path(p).exists()]
+    if missing:
+        return {"ok": False,
+                "error": f"SSL certs not found: {missing}. Run 'Generate SSL Certs' first.",
+                "steps": steps}
+    # Verify client-key.pem is RSA/PKCS8 PEM, not OpenSSH format
+    try:
+        key_text = Path(key_path).read_text()
+        if "BEGIN OPENSSH PRIVATE KEY" in key_text:
+            return {
+                "ok": False,
+                "error": (
+                    "client-key.pem is an OpenSSH private key, not an RSA/PEM key. "
+                    "MariaDB cannot use this format. "
+                    "Click 'Generate SSL Certs' to regenerate all certs in the correct format."
+                ),
+                "steps": steps,
+            }
+    except Exception as e:
+        steps.append({"step": "Validate client-key.pem", "ok": False, "err": str(e)})
+    steps.append({"step": "Validate local SSL certs (PEM format)", "ok": True, "err": ""})
+
     # ── 1. SSH reachability ───────────────────────────────────────────────────
     r = _remote_run(sb, "echo ok", timeout=12)
     steps.append({"step": "SSH connectivity", "ok": r["ok"], "err": r["stderr"]})
