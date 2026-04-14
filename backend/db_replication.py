@@ -441,7 +441,10 @@ ssl-cert = {cfg.get('ssl_cert_path', '/etc/mysql/ssl/client-cert.pem')}
 ssl-key = {cfg.get('ssl_key_path', '/etc/mysql/ssl/client-key.pem')}
 """
     try:
-        mycnf_path = Path("/etc/mysql/mysql.conf.d/moodle-dr-replication.cnf")
+        # MariaDB uses mariadb.conf.d; fall back to mysql.conf.d if needed
+        mycnf_path = Path("/etc/mysql/mariadb.conf.d/moodle-dr-replication.cnf")
+        if not mycnf_path.parent.exists():
+            mycnf_path = Path("/etc/mysql/mysql.conf.d/moodle-dr-replication.cnf")
         mycnf_path.parent.mkdir(parents=True, exist_ok=True)
         mycnf_path.write_text(mycnf_additions)
         db_db.log_audit("configure_source", result="ok")
@@ -489,7 +492,9 @@ ssl-key = {ssl_dir}/client-key.pem
     steps = []
     # Determine target cnf path — try /etc/mysql/mysql.conf.d/ first, fall back to
     # /home/moodlesync/ if sudo is unavailable
-    cnf_path_system = "/etc/mysql/mysql.conf.d/moodle-dr-replica.cnf"
+    # MariaDB on Ubuntu uses mariadb.conf.d; MySQL uses mysql.conf.d
+    # Try mariadb.conf.d first (correct for MariaDB), fall back to mysql.conf.d
+    cnf_path_system = "/etc/mysql/mariadb.conf.d/moodle-dr-replica.cnf"
     cnf_path_home   = f"/home/{ssh_user}/moodle-dr-replica.cnf"
 
     # Write cnf to staging /tmp via stdin pipe (no sudo needed)
