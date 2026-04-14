@@ -476,7 +476,7 @@ echo "Now run: Configure Replica in the dashboard"
         "ok": True,
         "script": script,
         "ssl_dir": ssl_dir,
-        "message": f"Copy the script below and run it as root on {(cfg.get("replica_host") or "")}",
+        "message": "Copy the script below and run it as root on " + (cfg.get("replica_host") or ""),
     }
 
 
