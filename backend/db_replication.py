@@ -242,16 +242,27 @@ def create_repl_user(body: dict = None):
         return {"ok": False, "error": err}
     try:
         cursor = conn.cursor()
+        # Detect MariaDB vs MySQL — syntax for CREATE USER differs
+        cursor.execute("SELECT VERSION()")
+        version_str = cursor.fetchone()[0]
+        is_mariadb = "mariadb" in version_str.lower()
+
         repl_user = cfg.get("repl_user", "repl_user")
         repl_pass = cfg.get("repl_password", "")
-        replica_host = cfg.get("replica_host", "%")
-        cursor.execute(f"CREATE USER IF NOT EXISTS '{repl_user}'@'%' IDENTIFIED WITH mysql_native_password BY '{repl_pass}'")
+
+        # MariaDB uses plain IDENTIFIED BY; MySQL 8+ uses IDENTIFIED WITH mysql_native_password BY
+        if is_mariadb:
+            create_sql = f"CREATE USER IF NOT EXISTS '{repl_user}'@'%' IDENTIFIED BY '{repl_pass}'"
+        else:
+            create_sql = f"CREATE USER IF NOT EXISTS '{repl_user}'@'%' IDENTIFIED WITH mysql_native_password BY '{repl_pass}'"
+
+        cursor.execute(create_sql)
         cursor.execute(f"GRANT REPLICATION SLAVE ON *.* TO '{repl_user}'@'%'")
         cursor.execute("FLUSH PRIVILEGES")
         conn.commit()
         conn.close()
         db_db.log_audit("create_repl_user", result="ok", details={"user": repl_user})
-        return {"ok": True, "message": f"Replication user '{repl_user}'@'%' created and granted"}
+        return {"ok": True, "message": f"Replication user '{repl_user}'@'%' created and granted (MariaDB={is_mariadb})"}
     except Exception as e:
         db_db.log_audit("create_repl_user", result="error", details={"error": str(e)})
         return {"ok": False, "error": str(e)}
@@ -360,8 +371,9 @@ binlog_format = ROW
 gtid_mode = ON
 enforce_gtid_consistency = ON
 read_only = ON
-replica_parallel_workers = 4
-replica_parallel_type = LOGICAL_CLOCK
+# MariaDB uses slave_parallel_workers; MySQL 8 uses replica_parallel_workers
+slave_parallel_workers = 4
+slave_parallel_mode = optimistic
 ssl-ca = /etc/mysql/ssl/ca-cert.pem
 ssl-cert = /etc/mysql/ssl/client-cert.pem
 ssl-key = /etc/mysql/ssl/client-key.pem
