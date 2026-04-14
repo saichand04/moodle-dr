@@ -553,7 +553,7 @@ def push_ssl_to_replica():
 
     # ── 1. SSH reachability ───────────────────────────────────────────────────
     r = _remote_run(sb, "echo ok", timeout=12)
-    steps.append({"step": "SSH connectivity", "ok": r["ok"], "err": r["stderr"]})
+    steps.append({"step": "SSH connectivity", "ok": r["ok"], "err": r["stdout"] or r["stderr"]})
     if not r["ok"]:
         return {"ok": False, "error": f"SSH failed: {r['stderr']}", "steps": steps}
 
@@ -593,20 +593,20 @@ def push_ssl_to_replica():
     else:
         mkdir_cmd = f"mkdir -p {remote_ssl_dir} && chmod 700 {remote_ssl_dir}"
     r = _remote_run(sb, mkdir_cmd, timeout=10)
-    steps.append({"step": f"Create {remote_ssl_dir} on replica", "ok": r["ok"], "err": r["stderr"]})
+    steps.append({"step": f"Create {remote_ssl_dir} on replica", "ok": r["ok"], "err": r["stdout"] or r["stderr"]})
     if not r["ok"]:
         return {"ok": False, "error": f"mkdir {remote_ssl_dir} failed: {r['stderr']}", "steps": steps}
 
     # ── 4b. Allow mysql to traverse home dir (only needed without sudo) ───────
     if not sudoers_ok:
         r = _remote_run(sb, f"chmod o+x /home/{ssh_user}", timeout=10)
-        steps.append({"step": f"chmod o+x /home/{ssh_user}", "ok": r["ok"], "err": r["stderr"]})
+        steps.append({"step": f"chmod o+x /home/{ssh_user}", "ok": r["ok"], "err": r["stdout"] or r["stderr"]})
 
     # ── 4c. Create /var/log/mysql (best-effort) ───────────────────────────────
     r = _remote_run(sb,
         "sudo mkdir -p /var/log/mysql && sudo chown mysql:mysql /var/log/mysql",
         timeout=15)
-    steps.append({"step": "Create /var/log/mysql on replica", "ok": r["ok"], "err": r["stderr"]})
+    steps.append({"step": "Create /var/log/mysql on replica", "ok": r["ok"], "err": r["stdout"] or r["stderr"]})
     # Non-fatal — continue even if this fails
 
     # ── 5. SCP certs directly to final destination ────────────────────────────
@@ -624,7 +624,7 @@ def push_ssl_to_replica():
                 f"{remote_ssl_dir}/{cert}",
                 use_sudo=True, timeout=15)
             steps.append({"step": f"Write {cert} to {remote_ssl_dir}",
-                          "ok": r["ok"], "err": r["stderr"]})
+                          "ok": r["ok"], "err": r["stdout"] or r["stderr"]})
             if not r["ok"]:
                 return {"ok": False,
                         "error": f"Failed to write {cert}: {r['stderr']}",
@@ -648,11 +648,11 @@ def push_ssl_to_replica():
             f"{local_ssl_dir}/client-key.pem",
             f"{ssh_tgt}:{remote_ssl_dir}/",
         ], timeout=30)
-        steps.append({"step": f"SCP certs to {remote_ssl_dir}", "ok": r["ok"], "err": r["stderr"]})
+        steps.append({"step": f"SCP certs to {remote_ssl_dir}", "ok": r["ok"], "err": r["stdout"] or r["stderr"]})
         if not r["ok"]:
             return {"ok": False, "error": f"SCP failed: {r['stderr']}", "steps": steps}
         r = _remote_run(sb, f"chmod 644 {remote_ssl_dir}/*.pem", timeout=10)
-        steps.append({"step": f"chmod 644 certs", "ok": r["ok"], "err": r["stderr"]})
+        steps.append({"step": f"chmod 644 certs", "ok": r["ok"], "err": r["stdout"] or r["stderr"]})
 
     # ── 6. Verify files exist (sudo stat — works regardless of dir permissions) ─
     for cert in ["ca-cert.pem", "client-cert.pem", "client-key.pem"]:
@@ -762,7 +762,7 @@ max_binlog_size          = 100M
         # chown mysql:mysql via subprocess (requires running as root)
         r = run_cmd(["chown", "mysql:mysql", str(log_dir)])
         steps.append({"step": "Create /var/log/mysql + chown mysql:mysql",
-                      "ok": r["ok"], "err": r["stderr"]})
+                      "ok": r["ok"], "err": r["stdout"] or r["stderr"]})
     except Exception as e:
         steps.append({"step": "Create /var/log/mysql", "ok": False, "err": str(e)})
 
@@ -793,7 +793,7 @@ max_binlog_size          = 100M
                              "Production DB untouched."})
     else:
         r = run_cmd(["systemctl", "restart", svc_name], timeout=30)
-        steps.append({"step": f"Restart {svc_name} on source", "ok": r["ok"], "err": r["stderr"]})
+        steps.append({"step": f"Restart {svc_name} on source", "ok": r["ok"], "err": r["stdout"] or r["stderr"]})
         if r["ok"]:
             # Verify it came up
             r2 = run_cmd(["systemctl", "is-active", svc_name], timeout=10)
@@ -873,16 +873,18 @@ ssl-key                  = {ssl_dir}/client-key.pem
     r = _remote_run(sb,
         "sudo mkdir -p /var/log/mysql && sudo chown mysql:mysql /var/log/mysql",
         timeout=15)
-    steps.append({"step": "Ensure /var/log/mysql exists", "ok": r["ok"], "err": r["stderr"]})
+    steps.append({"step": "Ensure /var/log/mysql exists", "ok": r["ok"], "err": r["stdout"] or r["stderr"]})
     # Non-fatal — continue even if sudo fails (may already exist)
 
     # ── 4. Write cnf to staging via base64-embedded command ─────────────
     # With -tt PTY, piping via subprocess stdin hangs (EOF never delivered).
     # Embed content as base64 in the command string to avoid stdin entirely.
     r = _remote_write_file(sb, mycnf_content, staging, use_sudo=True, timeout=15)
-    steps.append({"step": f"Write cnf to {staging}", "ok": r["ok"], "err": r["stderr"]})
+    # stderr is merged into stdout since -tt PTY fix — use stdout for error details
+    write_err = r["stdout"] or r["stderr"] or "unknown error (no output)"
+    steps.append({"step": f"Write cnf to {staging}", "ok": r["ok"], "err": write_err})
     if not r["ok"]:
-        return {"ok": False, "error": f"Could not write staging cnf: {r['stderr']}", "steps": steps}
+        return {"ok": False, "error": f"Could not write staging cnf: {write_err}", "steps": steps}
 
     # ── 5. Install cnf to system path via sudo ────────────────────────────
     r = _remote_run(sb,
@@ -896,14 +898,14 @@ ssl-key                  = {ssl_dir}/client-key.pem
         r2 = _remote_run(sb, f"cp {staging} {cnf_path_home}", timeout=10)
         cnf_final = cnf_path_home
         steps.append({"step": f"sudo unavailable — cnf at {cnf_path_home}",
-                      "ok": r2["ok"], "err": r["stderr"]})
+                      "ok": r2["ok"], "err": r["stdout"] or r["stderr"]})
         if not r2["ok"]:
             return {"ok": False, "error": r2["stderr"], "steps": steps}
 
     # ── 6. Restart DB service automatically ────────────────────────────────
     if cnf_final == cnf_path_system:
         r = _remote_run(sb, f"sudo systemctl restart {svc_name}", timeout=30)
-        steps.append({"step": f"Restart {svc_name} on replica", "ok": r["ok"], "err": r["stderr"]})
+        steps.append({"step": f"Restart {svc_name} on replica", "ok": r["ok"], "err": r["stdout"] or r["stderr"]})
         if r["ok"]:
             # Verify it came up
             r2 = _remote_run(sb, f"systemctl is-active {svc_name}", timeout=10)
