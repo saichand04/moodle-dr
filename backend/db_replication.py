@@ -34,7 +34,7 @@ def run_cmd(cmd: list, timeout: int = 15) -> dict:
 
 def _ssh_cmd(host: str, user: str = None, *remote_args) -> list:
     cfg = db_db.get_raw_db_config()
-    ssh_user = user or cfg.get("replica_db_user", "root")
+    ssh_user = user or (cfg.get("replica_db_user") or "root")
     # Use the file sync SSH key for SSH connections to replica
     return [
         "ssh",
@@ -81,10 +81,10 @@ def _determine_status(io_running, sql_running, lag, last_io_error, last_sql_erro
 def _query_replica_status(cfg: dict) -> dict:
     """Query SHOW REPLICA STATUS from the replica MySQL."""
     conn, err = _get_mysql_conn(
-        cfg.get("replica_host", ""),
-        cfg.get("replica_port", 3306),
-        cfg.get("replica_db_user", "root"),
-        cfg.get("replica_db_password", ""),
+        (cfg.get("replica_host") or ""),
+        (cfg.get("replica_port") or 3306),
+        (cfg.get("replica_db_user") or "root"),
+        (cfg.get("replica_db_password") or ""),
     )
     if err:
         return {"error": err, "connected": False}
@@ -165,10 +165,10 @@ def test_source_connection():
     if not cfg:
         return {"ok": False, "error": "No configuration saved"}
     conn, err = _get_mysql_conn(
-        cfg.get("source_host", "127.0.0.1"),
-        cfg.get("source_port", 3306),
-        cfg.get("source_db_user", "root"),
-        cfg.get("source_db_password", ""),
+        (cfg.get("source_host") or "127.0.0.1"),
+        (cfg.get("source_port") or 3306),
+        (cfg.get("source_db_user") or "root"),
+        (cfg.get("source_db_password") or ""),
     )
     if err:
         return {"ok": False, "error": err}
@@ -201,10 +201,10 @@ def test_replica_connection():
     if not cfg:
         return {"ok": False, "error": "No configuration saved"}
     conn, err = _get_mysql_conn(
-        cfg.get("replica_host", ""),
-        cfg.get("replica_port", 3306),
-        cfg.get("replica_db_user", "root"),
-        cfg.get("replica_db_password", ""),
+        (cfg.get("replica_host") or ""),
+        (cfg.get("replica_port") or 3306),
+        (cfg.get("replica_db_user") or "root"),
+        (cfg.get("replica_db_password") or ""),
     )
     if err:
         return {"ok": False, "error": err}
@@ -243,7 +243,7 @@ SUDOERS_RULE  = (
 def check_replica_sudoers():
     """Verify moodlesync has the required NOPASSWD sudoers rule on the replica."""
     cfg = db_db.get_raw_db_config()
-    replica_host = cfg.get("replica_host", "")
+    replica_host = (cfg.get("replica_host") or "")
     if not replica_host:
         return {"ok": False, "error": "Replica host not configured"}
 
@@ -288,10 +288,10 @@ def create_repl_user(body: dict = None):
     if not cfg:
         return {"ok": False, "error": "No configuration saved"}
     conn, err = _get_mysql_conn(
-        cfg.get("source_host", "127.0.0.1"),
-        cfg.get("source_port", 3306),
-        cfg.get("source_db_user", "root"),
-        cfg.get("source_db_password", ""),
+        (cfg.get("source_host") or "127.0.0.1"),
+        (cfg.get("source_port") or 3306),
+        (cfg.get("source_db_user") or "root"),
+        (cfg.get("source_db_password") or ""),
     )
     if err:
         db_db.log_audit("create_repl_user", result="error", details={"error": err})
@@ -303,8 +303,8 @@ def create_repl_user(body: dict = None):
         version_str = cursor.fetchone()[0]
         is_mariadb = "mariadb" in version_str.lower()
 
-        repl_user = cfg.get("repl_user", "repl_user")
-        repl_pass = cfg.get("repl_password", "")
+        repl_user = (cfg.get("repl_user") or "repl_user")
+        repl_pass = (cfg.get("repl_password") or "")
 
         # MariaDB uses plain IDENTIFIED BY; MySQL 8+ uses IDENTIFIED WITH mysql_native_password BY
         if is_mariadb:
@@ -425,7 +425,7 @@ def get_replica_ssl_script():
     script = f"""#!/bin/bash
 # ============================================================
 # Moodle DR — Replica SSL Setup Script
-# Run this as ROOT on the replica server: {cfg.get('replica_host','')}
+# Run this as ROOT on the replica server: {(cfg.get("replica_host") or "")}
 # Generated at: $(date)
 # ============================================================
 set -e
@@ -476,14 +476,14 @@ echo "Now run: Configure Replica in the dashboard"
         "ok": True,
         "script": script,
         "ssl_dir": ssl_dir,
-        "message": f"Copy the script below and run it as root on {cfg.get('replica_host','')}",
+        "message": f"Copy the script below and run it as root on {(cfg.get("replica_host") or "")}",
     }
 
 
 @router.post("/setup/push-ssl-to-replica")
 def push_ssl_to_replica():
     cfg = db_db.get_raw_db_config()
-    replica_host = cfg.get("replica_host", "")
+    replica_host = (cfg.get("replica_host") or "")
     if not replica_host:
         return {"ok": False, "error": "Replica host not configured"}
 
@@ -657,8 +657,8 @@ def configure_source():
     # ── 1. Detect DB flavour on source ────────────────────────────────────────
     # Dashboard runs on the source server itself, so we connect locally
     conn_s, err_s = _get_mysql_conn(
-        cfg.get("source_host", "127.0.0.1"), cfg.get("source_port", 3306),
-        cfg.get("source_db_user", "root"), cfg.get("source_db_password", "")
+        (cfg.get("source_host") or "127.0.0.1"), (cfg.get("source_port") or 3306),
+        (cfg.get("source_db_user") or "root"), (cfg.get("source_db_password") or "")
     )
     source_is_mariadb = False
     if not err_s:
@@ -686,9 +686,11 @@ def configure_source():
     # ── SSL cert validation — MUST exist before writing to cnf ───────────────
     # Writing empty or missing cert paths causes MariaDB to fail on startup.
     # Safety rule: never restart source DB with an invalid SSL config.
-    ssl_ca   = cfg.get('ssl_ca_path',   '/etc/mysql/ssl/ca-cert.pem')
-    ssl_cert = cfg.get('ssl_cert_path', '/etc/mysql/ssl/client-cert.pem')
-    ssl_key  = cfg.get('ssl_key_path',  '/etc/mysql/ssl/client-key.pem')
+    # Use 'or' fallback (not .get default) — .get default only fires if key is absent,
+    # but DB stores None when unconfigured, so 'or' is required to catch None values.
+    ssl_ca   = cfg.get('ssl_ca_path')   or '/etc/mysql/ssl/ca-cert.pem'
+    ssl_cert = cfg.get('ssl_cert_path') or '/etc/mysql/ssl/client-cert.pem'
+    ssl_key  = cfg.get('ssl_key_path')  or '/etc/mysql/ssl/client-key.pem'
 
     ssl_paths_valid = all([
         ssl_ca   and Path(ssl_ca).is_file(),
@@ -720,7 +722,7 @@ server-id                = 1
 log_bin                  = /var/log/mysql/mysql-bin.log
 binlog_format            = ROW
 {gtid_lines}
-binlog_do_db             = {cfg.get('moodle_db_name', 'moodle')}
+binlog_do_db             = {cfg.get('moodle_db_name') or 'moodle'}
 expire_logs_days         = 7
 max_binlog_size          = 100M
 {ssl_block}
@@ -786,7 +788,7 @@ max_binlog_size          = 100M
 @router.post("/setup/configure-replica")
 def configure_replica():
     cfg = db_db.get_raw_db_config()
-    replica_host = cfg.get("replica_host", "")
+    replica_host = (cfg.get("replica_host") or "")
     if not replica_host:
         return {"ok": False, "error": "Replica host not configured"}
 
@@ -794,15 +796,15 @@ def configure_replica():
     sb       = _ssh_base(replica_host)
     # ssl_remote_dir is saved by push_ssl_to_replica.
     # Canonical location on Ubuntu 24.04 MariaDB is /var/lib/mysql/ssl.
-    ssl_dir_raw = cfg.get("ssl_remote_dir", "")
+    ssl_dir_raw = (cfg.get("ssl_remote_dir") or "")
     ssl_dir = ssl_dir_raw if ssl_dir_raw else "/var/lib/mysql/ssl"
     steps    = []
 
     # ── 1. Detect DB flavour via SSH (MariaDB vs MySQL) ───────────────────────
     # Try connecting; fall back to SSH version string if port not open yet
     db_type = _detect_db_type(
-        replica_host, cfg.get("replica_port", 3306),
-        cfg.get("replica_db_user", "root"), cfg.get("replica_db_password", "")
+        replica_host, (cfg.get("replica_port") or 3306),
+        (cfg.get("replica_db_user") or "root"), (cfg.get("replica_db_password") or "")
     )
     if db_type == "unknown":
         # Read version string via SSH as fallback
@@ -942,8 +944,8 @@ def setup_status():
 async def _run_seed_job():
     """Background task: seed replica database via mysqldump or xtrabackup."""
     cfg = db_db.get_raw_db_config()
-    db_name = cfg.get("moodle_db_name", "moodle")
-    seed_method = cfg.get("seed_method", "mysqldump")
+    db_name = (cfg.get("moodle_db_name") or "moodle")
+    seed_method = (cfg.get("seed_method") or "mysqldump")
 
     state.db_seed_job.update({
         "running": True, "phase": "starting", "progress": 0,
@@ -966,13 +968,13 @@ async def _run_seed_job():
 
 
 async def _seed_mysqldump(cfg: dict, db_name: str):
-    source_host = cfg.get("source_host", "127.0.0.1")
-    source_port = cfg.get("source_port", 3306)
-    source_user = cfg.get("source_db_user", "root")
-    source_pass = cfg.get("source_db_password", "")
-    replica_host = cfg.get("replica_host", "")
-    replica_user = cfg.get("replica_db_user", "root")
-    replica_pass = cfg.get("replica_db_password", "")
+    source_host = (cfg.get("source_host") or "127.0.0.1")
+    source_port = (cfg.get("source_port") or 3306)
+    source_user = (cfg.get("source_db_user") or "root")
+    source_pass = (cfg.get("source_db_password") or "")
+    replica_host = (cfg.get("replica_host") or "")
+    replica_user = (cfg.get("replica_db_user") or "root")
+    replica_pass = (cfg.get("replica_db_password") or "")
 
     dump_path = f"/tmp/moodle_seed_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}.sql.gz"
 
@@ -1092,20 +1094,20 @@ def seed_start_replication():
     if not cfg:
         return {"ok": False, "error": "No configuration saved"}
 
-    replica_host = cfg.get("replica_host", "")
-    repl_user = cfg.get("repl_user", "repl_user")
-    repl_pass = cfg.get("repl_password", "")
-    source_host = cfg.get("source_host", "127.0.0.1")
-    source_port = cfg.get("source_port", 3306)
-    ssl_ca = cfg.get("ssl_ca_path", "/etc/mysql/ssl/ca-cert.pem")
-    ssl_cert = cfg.get("ssl_cert_path", "/etc/mysql/ssl/client-cert.pem")
-    ssl_key = cfg.get("ssl_key_path", "/etc/mysql/ssl/client-key.pem")
+    replica_host = (cfg.get("replica_host") or "")
+    repl_user = (cfg.get("repl_user") or "repl_user")
+    repl_pass = (cfg.get("repl_password") or "")
+    source_host = (cfg.get("source_host") or "127.0.0.1")
+    source_port = (cfg.get("source_port") or 3306)
+    ssl_ca = (cfg.get("ssl_ca_path") or "/etc/mysql/ssl/ca-cert.pem")
+    ssl_cert = (cfg.get("ssl_cert_path") or "/etc/mysql/ssl/client-cert.pem")
+    ssl_key = (cfg.get("ssl_key_path") or "/etc/mysql/ssl/client-key.pem")
 
     conn, err = _get_mysql_conn(
         replica_host,
-        cfg.get("replica_port", 3306),
-        cfg.get("replica_db_user", "root"),
-        cfg.get("replica_db_password", ""),
+        (cfg.get("replica_port") or 3306),
+        (cfg.get("replica_db_user") or "root"),
+        (cfg.get("replica_db_password") or ""),
     )
     if err:
         db_db.log_audit("start_replication", result="error", details={"error": err})
@@ -1288,10 +1290,10 @@ def get_source_status():
     if not cfg:
         return {"ok": False, "error": "No configuration"}
     conn, err = _get_mysql_conn(
-        cfg.get("source_host", "127.0.0.1"),
-        cfg.get("source_port", 3306),
-        cfg.get("source_db_user", "root"),
-        cfg.get("source_db_password", ""),
+        (cfg.get("source_host") or "127.0.0.1"),
+        (cfg.get("source_port") or 3306),
+        (cfg.get("source_db_user") or "root"),
+        (cfg.get("source_db_password") or ""),
     )
     if err:
         return {"ok": False, "error": err}
@@ -1315,10 +1317,10 @@ def stop_replication():
     if not cfg:
         return {"ok": False, "error": "No configuration"}
     conn, err = _get_mysql_conn(
-        cfg.get("replica_host", ""),
-        cfg.get("replica_port", 3306),
-        cfg.get("replica_db_user", "root"),
-        cfg.get("replica_db_password", ""),
+        (cfg.get("replica_host") or ""),
+        (cfg.get("replica_port") or 3306),
+        (cfg.get("replica_db_user") or "root"),
+        (cfg.get("replica_db_password") or ""),
     )
     if err:
         return {"ok": False, "error": err}
@@ -1344,10 +1346,10 @@ def start_replication():
     if not cfg:
         return {"ok": False, "error": "No configuration"}
     conn, err = _get_mysql_conn(
-        cfg.get("replica_host", ""),
-        cfg.get("replica_port", 3306),
-        cfg.get("replica_db_user", "root"),
-        cfg.get("replica_db_password", ""),
+        (cfg.get("replica_host") or ""),
+        (cfg.get("replica_port") or 3306),
+        (cfg.get("replica_db_user") or "root"),
+        (cfg.get("replica_db_password") or ""),
     )
     if err:
         return {"ok": False, "error": err}
@@ -1373,10 +1375,10 @@ def reset_replication():
     if not cfg:
         return {"ok": False, "error": "No configuration"}
     conn, err = _get_mysql_conn(
-        cfg.get("replica_host", ""),
-        cfg.get("replica_port", 3306),
-        cfg.get("replica_db_user", "root"),
-        cfg.get("replica_db_password", ""),
+        (cfg.get("replica_host") or ""),
+        (cfg.get("replica_port") or 3306),
+        (cfg.get("replica_db_user") or "root"),
+        (cfg.get("replica_db_password") or ""),
     )
     if err:
         return {"ok": False, "error": err}
@@ -1409,10 +1411,10 @@ def flush_logs():
     if not cfg:
         return {"ok": False, "error": "No configuration"}
     conn, err = _get_mysql_conn(
-        cfg.get("source_host", "127.0.0.1"),
-        cfg.get("source_port", 3306),
-        cfg.get("source_db_user", "root"),
-        cfg.get("source_db_password", ""),
+        (cfg.get("source_host") or "127.0.0.1"),
+        (cfg.get("source_port") or 3306),
+        (cfg.get("source_db_user") or "root"),
+        (cfg.get("source_db_password") or ""),
     )
     if err:
         return {"ok": False, "error": err}
@@ -1438,20 +1440,20 @@ def get_errant_gtids():
 
     # Get source executed GTIDs
     src_conn, err = _get_mysql_conn(
-        cfg.get("source_host", "127.0.0.1"),
-        cfg.get("source_port", 3306),
-        cfg.get("source_db_user", "root"),
-        cfg.get("source_db_password", ""),
+        (cfg.get("source_host") or "127.0.0.1"),
+        (cfg.get("source_port") or 3306),
+        (cfg.get("source_db_user") or "root"),
+        (cfg.get("source_db_password") or ""),
     )
     if err:
         return {"ok": False, "error": f"Source connection failed: {err}"}
 
     # Get replica executed GTIDs
     rep_conn, err2 = _get_mysql_conn(
-        cfg.get("replica_host", ""),
-        cfg.get("replica_port", 3306),
-        cfg.get("replica_db_user", "root"),
-        cfg.get("replica_db_password", ""),
+        (cfg.get("replica_host") or ""),
+        (cfg.get("replica_port") or 3306),
+        (cfg.get("replica_db_user") or "root"),
+        (cfg.get("replica_db_password") or ""),
     )
     if err2:
         return {"ok": False, "error": f"Replica connection failed: {err2}"}
@@ -1489,10 +1491,10 @@ def relay_log_reset():
     if not cfg:
         return {"ok": False, "error": "No configuration"}
     conn, err = _get_mysql_conn(
-        cfg.get("replica_host", ""),
-        cfg.get("replica_port", 3306),
-        cfg.get("replica_db_user", "root"),
-        cfg.get("replica_db_password", ""),
+        (cfg.get("replica_host") or ""),
+        (cfg.get("replica_port") or 3306),
+        (cfg.get("replica_db_user") or "root"),
+        (cfg.get("replica_db_password") or ""),
     )
     if err:
         return {"ok": False, "error": err}
@@ -1520,10 +1522,10 @@ def inject_empty_txn(body: dict):
     if not cfg:
         return {"ok": False, "error": "No configuration"}
     conn, err = _get_mysql_conn(
-        cfg.get("replica_host", ""),
-        cfg.get("replica_port", 3306),
-        cfg.get("replica_db_user", "root"),
-        cfg.get("replica_db_password", ""),
+        (cfg.get("replica_host") or ""),
+        (cfg.get("replica_port") or 3306),
+        (cfg.get("replica_db_user") or "root"),
+        (cfg.get("replica_db_password") or ""),
     )
     if err:
         return {"ok": False, "error": err}
@@ -1551,10 +1553,10 @@ def increase_workers(body: dict = None):
     if not cfg:
         return {"ok": False, "error": "No configuration"}
     conn, err = _get_mysql_conn(
-        cfg.get("replica_host", ""),
-        cfg.get("replica_port", 3306),
-        cfg.get("replica_db_user", "root"),
-        cfg.get("replica_db_password", ""),
+        (cfg.get("replica_host") or ""),
+        (cfg.get("replica_port") or 3306),
+        (cfg.get("replica_db_user") or "root"),
+        (cfg.get("replica_db_password") or ""),
     )
     if err:
         return {"ok": False, "error": err}
@@ -1587,20 +1589,20 @@ def table_count_check():
     cfg = db_db.get_raw_db_config()
     if not cfg:
         return {"ok": False, "error": "No configuration"}
-    db_name = cfg.get("moodle_db_name", "moodle")
+    db_name = (cfg.get("moodle_db_name") or "moodle")
 
     src_conn, err = _get_mysql_conn(
-        cfg.get("source_host", "127.0.0.1"),
-        cfg.get("source_port", 3306),
-        cfg.get("source_db_user", "root"),
-        cfg.get("source_db_password", ""),
+        (cfg.get("source_host") or "127.0.0.1"),
+        (cfg.get("source_port") or 3306),
+        (cfg.get("source_db_user") or "root"),
+        (cfg.get("source_db_password") or ""),
         db=db_name,
     )
     rep_conn, err2 = _get_mysql_conn(
-        cfg.get("replica_host", ""),
-        cfg.get("replica_port", 3306),
-        cfg.get("replica_db_user", "root"),
-        cfg.get("replica_db_password", ""),
+        (cfg.get("replica_host") or ""),
+        (cfg.get("replica_port") or 3306),
+        (cfg.get("replica_db_user") or "root"),
+        (cfg.get("replica_db_password") or ""),
         db=db_name,
     )
 
@@ -1652,20 +1654,20 @@ def run_checksum(body: dict = None):
     cfg = db_db.get_raw_db_config()
     if not cfg:
         return {"ok": False, "error": "No configuration"}
-    db_name = cfg.get("moodle_db_name", "moodle")
+    db_name = (cfg.get("moodle_db_name") or "moodle")
     results = []
     src_conn, err = _get_mysql_conn(
-        cfg.get("source_host", "127.0.0.1"),
-        cfg.get("source_port", 3306),
-        cfg.get("source_db_user", "root"),
-        cfg.get("source_db_password", ""),
+        (cfg.get("source_host") or "127.0.0.1"),
+        (cfg.get("source_port") or 3306),
+        (cfg.get("source_db_user") or "root"),
+        (cfg.get("source_db_password") or ""),
         db=db_name,
     )
     rep_conn, err2 = _get_mysql_conn(
-        cfg.get("replica_host", ""),
-        cfg.get("replica_port", 3306),
-        cfg.get("replica_db_user", "root"),
-        cfg.get("replica_db_password", ""),
+        (cfg.get("replica_host") or ""),
+        (cfg.get("replica_port") or 3306),
+        (cfg.get("replica_db_user") or "root"),
+        (cfg.get("replica_db_password") or ""),
         db=db_name,
     )
     if err or err2:
@@ -1740,7 +1742,7 @@ def failover_pre_check():
         "value": db_status.get("last_sql_error") or "None",
     })
     # SSH connectivity to replica
-    replica_host = cfg.get("replica_host", "") if cfg else ""
+    replica_host = (cfg.get("replica_host") or "") if cfg else ""
     if replica_host:
         r = run_cmd(["ssh", "-i", state.SSH_KEY_PATH, "-o", "BatchMode=yes",
                      "-o", "ConnectTimeout=6", "-o", "StrictHostKeyChecking=accept-new",
@@ -1760,12 +1762,12 @@ def failover_initiate():
         return {"ok": False, "error": "No configuration"}
 
     steps = []
-    replica_host = cfg.get("replica_host", "")
-    replica_user = cfg.get("replica_db_user", "root")
-    replica_pass = cfg.get("replica_db_password", "")
+    replica_host = (cfg.get("replica_host") or "")
+    replica_user = (cfg.get("replica_db_user") or "root")
+    replica_pass = (cfg.get("replica_db_password") or "")
 
     # Step 1: Stop replication on replica
-    conn, err = _get_mysql_conn(replica_host, cfg.get("replica_port", 3306), replica_user, replica_pass)
+    conn, err = _get_mysql_conn(replica_host, (cfg.get("replica_port") or 3306), replica_user, replica_pass)
     if err:
         return {"ok": False, "error": f"Cannot connect to replica: {err}"}
 
@@ -1842,15 +1844,15 @@ def pt_heartbeat_status():
     lag = None
     if cfg:
         conn, err = _get_mysql_conn(
-            cfg.get("replica_host", ""),
-            cfg.get("replica_port", 3306),
-            cfg.get("replica_db_user", "root"),
-            cfg.get("replica_db_password", ""),
+            (cfg.get("replica_host") or ""),
+            (cfg.get("replica_port") or 3306),
+            (cfg.get("replica_db_user") or "root"),
+            (cfg.get("replica_db_password") or ""),
         )
         if not err:
             try:
                 cursor = conn.cursor()
-                db_name = cfg.get("moodle_db_name", "moodle")
+                db_name = (cfg.get("moodle_db_name") or "moodle")
                 cursor.execute(f"SELECT TIMESTAMPDIFF(SECOND, ts, NOW()) FROM `{db_name}`.heartbeat ORDER BY ts DESC LIMIT 1")
                 row = cursor.fetchone()
                 if row:
@@ -1874,10 +1876,10 @@ def pt_start_heartbeat():
     r = run_cmd(["systemctl", "start", "pt-heartbeat"])
     if not r["ok"]:
         # Try running directly
-        src_host = cfg.get("source_host", "127.0.0.1")
-        src_user = cfg.get("source_db_user", "root")
-        src_pass = cfg.get("source_db_password", "")
-        db_name = cfg.get("moodle_db_name", "moodle")
+        src_host = (cfg.get("source_host") or "127.0.0.1")
+        src_user = (cfg.get("source_db_user") or "root")
+        src_pass = (cfg.get("source_db_password") or "")
+        db_name = (cfg.get("moodle_db_name") or "moodle")
         run_cmd([
             "pt-heartbeat", f"--user={src_user}", f"--password={src_pass}",
             f"--host={src_host}", f"--database={db_name}",
@@ -1903,10 +1905,10 @@ def pt_run_checksum():
         return {"ok": False, "error": "No configuration"}
     if not shutil.which("pt-table-checksum"):
         return {"ok": False, "error": "pt-table-checksum not installed"}
-    db_name = cfg.get("moodle_db_name", "moodle")
-    src_host = cfg.get("source_host", "127.0.0.1")
-    src_user = cfg.get("source_db_user", "root")
-    src_pass = cfg.get("source_db_password", "")
+    db_name = (cfg.get("moodle_db_name") or "moodle")
+    src_host = (cfg.get("source_host") or "127.0.0.1")
+    src_user = (cfg.get("source_db_user") or "root")
+    src_pass = (cfg.get("source_db_password") or "")
     r = run_cmd([
         "pt-table-checksum",
         f"--user={src_user}", f"--password={src_pass}",
@@ -1935,11 +1937,11 @@ def pt_run_sync(body: dict = None):
         return {"ok": False, "error": "No configuration"}
     if not shutil.which("pt-table-sync"):
         return {"ok": False, "error": "pt-table-sync not installed"}
-    src_host = cfg.get("source_host", "127.0.0.1")
-    rep_host = cfg.get("replica_host", "")
-    src_user = cfg.get("source_db_user", "root")
-    src_pass = cfg.get("source_db_password", "")
-    db_name = cfg.get("moodle_db_name", "moodle")
+    src_host = (cfg.get("source_host") or "127.0.0.1")
+    rep_host = (cfg.get("replica_host") or "")
+    src_user = (cfg.get("source_db_user") or "root")
+    src_pass = (cfg.get("source_db_password") or "")
+    db_name = (cfg.get("moodle_db_name") or "moodle")
 
     cmd = [
         "pt-table-sync", "--execute",
