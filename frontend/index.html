@@ -1891,16 +1891,19 @@ function pageDbSettings() {
     <div id="dbSettingsResult" style="margin-top:12px"></div></div>
     <div class="panel"><div class="panel-title">${ICONS.settings} Advanced Setup Steps</div>
     <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-bottom:4px">
+      <button class="btn btn-ghost btn-sm adv-step-btn" id="stepBtn-check-replica-sudoers" onclick="runCheckSudoers(this)" title="Mandatory pre-requisite: verify moodlesync has NOPASSWD sudo on replica">Check Sudoers</button>
+      <span class="step-arrow" id="arrow-sudoers">&#8250;</span>
       <button class="btn btn-ghost btn-sm adv-step-btn" id="stepBtn-create-repl-user" onclick="runStep('create-repl-user',this)">Create Repl User</button>
       <span class="step-arrow" id="arrow-0">&#8250;</span>
       <button class="btn btn-ghost btn-sm adv-step-btn" id="stepBtn-generate-ssl-certs" onclick="runStep('generate-ssl-certs',this)">Generate SSL</button>
       <span class="step-arrow" id="arrow-1">&#8250;</span>
-      <button class="btn btn-ghost btn-sm adv-step-btn" id="stepBtn-push-ssl-to-replica" onclick="runStep('push-ssl-to-replica',this)">Push SSL to Replica</button>
+      <button class="btn btn-ghost btn-sm adv-step-btn" id="stepBtn-push-ssl-to-replica" onclick="runStepWithSudoersGate(this)" title="Requires Check Sudoers to pass first">Push SSL to Replica</button>
       <span class="step-arrow" id="arrow-2">&#8250;</span>
       <button class="btn btn-ghost btn-sm adv-step-btn" id="stepBtn-configure-source" onclick="runStep('configure-source',this)">Configure Source</button>
       <span class="step-arrow" id="arrow-3">&#8250;</span>
       <button class="btn btn-ghost btn-sm adv-step-btn" id="stepBtn-configure-replica" onclick="runStep('configure-replica',this)">Configure Replica</button>
     </div>
+    <div id="sudoers-notice" style="display:none;margin:6px 0 0;padding:8px 12px;border-radius:6px;border:1px solid var(--yellow,#fbbf24);background:rgba(251,191,36,.08);font-size:12px;color:var(--yellow,#fbbf24);line-height:1.6"></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
       <button class="btn btn-ghost btn-sm" onclick="startPtHeartbeat()">Start pt-heartbeat</button>
       <button class="btn btn-ghost btn-sm" onclick="stopPtHeartbeat()">Stop pt-heartbeat</button>
@@ -1939,6 +1942,51 @@ async function testReplicaDb(){
     <div class="banner-body">${r.ok?`Version: ${r.version}, read_only: ${r.read_only}`:escHtml(r.error)}</div></div></div>`;
 }
 const ADV_STEP_ORDER=['create-repl-user','generate-ssl-certs','push-ssl-to-replica','configure-source','configure-replica'];
+let _sudoersOk = false;
+
+async function runCheckSudoers(btnEl){
+  const btn = btnEl || document.getElementById('stepBtn-check-replica-sudoers');
+  const notice = document.getElementById('sudoers-notice');
+  if(btn){ btn.classList.remove('step-ok','step-err'); btn.classList.add('step-running'); btn.disabled=true; }
+  const r = await apiGet('/api/db/setup/check-replica-sudoers');
+  if(btn){ btn.classList.remove('step-running'); btn.classList.add(r.ok?'step-ok':'step-err'); btn.disabled=false; }
+  _sudoersOk = r.ok;
+  if(r.ok){
+    // Light up the sudoers→next arrow
+    const arrow = document.getElementById('arrow-sudoers');
+    if(arrow) arrow.classList.add('arrow-lit');
+    if(notice){ notice.style.display='none'; notice.textContent=''; }
+    showToast('Replica sudoers OK — ready to proceed','ok');
+  } else {
+    if(notice){
+      notice.style.display='block';
+      const fix = r.fix||'';
+      notice.innerHTML = `⚠️ <strong>Pre-requisite not met:</strong> ${escHtml(r.error||'')}<br>
+        Run this on the <strong>replica as root</strong> then click Check Sudoers again:<br>
+        <code style="display:block;margin-top:6px;padding:6px 8px;background:rgba(0,0,0,.3);border-radius:4px;font-size:11px;word-break:break-all">${escHtml(fix)}</code>`;
+    }
+    const el=document.getElementById('advStepResult');
+    if(el) el.innerHTML=`<div class="banner banner-err"><div class="banner-icon">${ICONS.alert}</div>
+      <div class="banner-text"><div class="banner-title">Sudoers check failed</div>
+      <div class="banner-body">${escHtml(r.error||'')}${r.fix?'<br><code style="font-size:11px">'+escHtml(r.fix)+'</code>':''}</div></div></div>`;
+  }
+}
+
+async function runStepWithSudoersGate(btnEl){
+  if(!_sudoersOk){
+    const notice = document.getElementById('sudoers-notice');
+    if(notice && notice.style.display==='none'){
+      // Haven't checked yet — run the check first automatically
+      await runCheckSudoers(document.getElementById('stepBtn-check-replica-sudoers'));
+      if(!_sudoersOk) return;
+    } else if(!_sudoersOk){
+      showToast('Run “Check Sudoers” first and ensure it passes','err');
+      return;
+    }
+  }
+  runStep('push-ssl-to-replica', btnEl);
+}
+
 async function runStep(step, btnEl){
   // Mark running
   const btn = btnEl || document.getElementById('stepBtn-'+step);

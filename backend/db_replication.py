@@ -226,6 +226,56 @@ def test_replica_connection():
 
 # ── Setup endpoints ───────────────────────────────────────────────────────────
 
+SUDOERS_FILE  = "/etc/sudoers.d/moodlesync-mysql"
+SUDOERS_RULE  = (
+    "{user} ALL=(root) NOPASSWD: "
+    "/bin/mkdir, /bin/cp, /bin/chown, /bin/chmod, "
+    "/usr/bin/tee, /bin/systemctl, /usr/sbin/mariadbd, /usr/sbin/mysqld"
+)
+
+@router.get("/setup/check-replica-sudoers")
+def check_replica_sudoers():
+    """Verify moodlesync has the required NOPASSWD sudoers rule on the replica."""
+    cfg = db_db.get_raw_db_config()
+    replica_host = cfg.get("replica_host", "")
+    if not replica_host:
+        return {"ok": False, "error": "Replica host not configured"}
+
+    sb = _ssh_base(replica_host)
+    ssh_user = state.AZURE_VM_USER
+
+    # 1. Test SSH connectivity
+    r = _remote_run(sb, "echo ok", timeout=12)
+    if not r["ok"]:
+        return {"ok": False, "error": f"SSH unreachable: {r['stderr']}"}
+
+    # 2. Check if sudoers file exists
+    r = _remote_run(sb, f"test -f {SUDOERS_FILE} && echo exists || echo missing", timeout=10)
+    file_exists = "exists" in r["stdout"]
+
+    # 3. Check if sudo actually works (dry-run mkdir)
+    r = _remote_run(sb, "sudo mkdir -p /tmp/moodle-dr-sudoers-test 2>&1", timeout=10)
+    sudo_works = r["ok"]
+
+    if sudo_works:
+        return {
+            "ok": True,
+            "message": "moodlesync has NOPASSWD sudo on replica — ready to proceed",
+            "sudoers_file": SUDOERS_FILE if file_exists else "(granted via another rule)",
+        }
+    else:
+        rule = SUDOERS_RULE.format(user=ssh_user)
+        return {
+            "ok": False,
+            "error": "moodlesync cannot run sudo on the replica without a password",
+            "fix": (
+                f"Run this on the replica as root:\n"
+                f"echo '{rule}' > {SUDOERS_FILE} "
+                f"&& chmod 440 {SUDOERS_FILE} && visudo -c"
+            ),
+        }
+
+
 @router.post("/setup/create-repl-user")
 def create_repl_user(body: dict = None):
     cfg = db_db.get_raw_db_config()
