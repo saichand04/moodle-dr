@@ -394,6 +394,80 @@ def _detect_db_type(host: str, port: int, user: str, password: str) -> str:
         return "unknown"
 
 
+@router.get("/setup/replica-ssl-script")
+def get_replica_ssl_script():
+    """Return a self-contained bash script to run as root on the replica.
+    This is the fallback when SSH sudo-based pushing keeps failing."""
+    cfg = db_db.get_raw_db_config()
+    ssl_dir = "/var/lib/mysql/ssl"
+    local_ssl = "/etc/mysql/ssl"
+
+    # Read local certs
+    certs = {}
+    for cert in ["ca-cert.pem", "client-cert.pem", "client-key.pem"]:
+        p = Path(f"{local_ssl}/{cert}")
+        if not p.exists():
+            return {"ok": False, "error": f"Local cert not found: {p}. Run Generate SSL first."}
+        certs[cert] = p.read_text()
+
+    script = f"""#!/bin/bash
+# ============================================================
+# Moodle DR — Replica SSL Setup Script
+# Run this as ROOT on the replica server: {cfg.get('replica_host','')}
+# Generated at: $(date)
+# ============================================================
+set -e
+
+SSL_DIR="{ssl_dir}"
+echo "[1/5] Creating SSL directory..."
+mkdir -p "$SSL_DIR"
+chown mysql:mysql "$SSL_DIR"
+chmod 750 "$SSL_DIR"
+
+echo "[2/5] Writing CA cert..."
+cat > "$SSL_DIR/ca-cert.pem" << 'CERT_EOF'
+{certs['ca-cert.pem']}CERT_EOF
+
+echo "[3/5] Writing client cert..."
+cat > "$SSL_DIR/client-cert.pem" << 'CERT_EOF'
+{certs['client-cert.pem']}CERT_EOF
+
+echo "[4/5] Writing client key..."
+cat > "$SSL_DIR/client-key.pem" << 'CERT_EOF'
+{certs['client-key.pem']}CERT_EOF
+
+echo "[5/5] Setting ownership and permissions..."
+chown mysql:mysql "$SSL_DIR/ca-cert.pem" "$SSL_DIR/client-cert.pem" "$SSL_DIR/client-key.pem"
+chmod 640 "$SSL_DIR/ca-cert.pem" "$SSL_DIR/client-cert.pem" "$SSL_DIR/client-key.pem"
+
+# Also create /var/log/mysql for binlog
+mkdir -p /var/log/mysql
+chown mysql:mysql /var/log/mysql
+
+echo ""
+echo "=== Verification ==="
+ls -la "$SSL_DIR/"
+echo ""
+echo "Done! Certs written to $SSL_DIR"
+echo "Now run: Configure Replica in the dashboard"
+"""
+
+    # Save script to a known path so it can be downloaded
+    script_path = Path("/tmp/moodle-dr-replica-ssl-setup.sh")
+    script_path.write_text(script)
+    script_path.chmod(0o755)
+
+    # Also mark ssl_remote_dir in the DB so Configure Replica uses the right path
+    db_db.update_db_config_field("ssl_remote_dir", ssl_dir)
+
+    return {
+        "ok": True,
+        "script": script,
+        "ssl_dir": ssl_dir,
+        "message": f"Copy the script below and run it as root on {cfg.get('replica_host','')}",
+    }
+
+
 @router.post("/setup/push-ssl-to-replica")
 def push_ssl_to_replica():
     cfg = db_db.get_raw_db_config()
