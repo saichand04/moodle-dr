@@ -506,20 +506,27 @@ def push_ssl_to_replica():
         steps.append({"step": f"SCP certs to {remote_staging}", "ok": r["ok"], "err": r["stderr"]})
         if not r["ok"]:
             return {"ok": False, "error": f"SCP failed: {r['stderr']}", "steps": steps}
-        # Copy each cert individually with sudo (avoid glob/multi-arg issues)
-        all_copy_ok = True
+        # Write each cert via 'sudo tee' — pipe local file content over SSH stdin.
+        # sudo tee is already proven to work (used for sudoers bootstrap).
+        # This avoids all sudo cp / binary path-resolution issues entirely.
         for cert in ["ca-cert.pem", "client-cert.pem", "client-key.pem"]:
+            try:
+                cert_content = Path(f"{local_ssl_dir}/{cert}").read_text()
+            except Exception as e:
+                return {"ok": False,
+                        "error": f"Cannot read local {cert}: {e}",
+                        "steps": steps}
             r = _remote_run(sb,
-                f"sudo cp {remote_staging}/{cert} {remote_ssl_dir}/{cert}",
+                f"sudo tee {remote_ssl_dir}/{cert}",
+                input_data=cert_content,
                 timeout=15)
-            steps.append({"step": f"sudo cp {cert} → {remote_ssl_dir}",
+            steps.append({"step": f"tee {cert} into {remote_ssl_dir}",
                           "ok": r["ok"], "err": r["stderr"]})
             if not r["ok"]:
-                all_copy_ok = False
                 return {"ok": False,
-                        "error": f"sudo cp {cert} failed: {r['stderr']}",
+                        "error": f"sudo tee {cert} failed: {r['stderr']}",
                         "steps": steps}
-        # Set ownership and permissions on each file explicitly (no glob)
+        # Set ownership and permissions on each file explicitly
         for cert in ["ca-cert.pem", "client-cert.pem", "client-key.pem"]:
             _remote_run(sb,
                 f"sudo chown mysql:mysql {remote_ssl_dir}/{cert} && "
