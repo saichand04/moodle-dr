@@ -178,8 +178,12 @@ def test_source_connection():
         version = cursor.fetchone()[0]
         cursor.execute("SHOW MASTER STATUS")
         master = cursor.fetchone()
-        cursor.execute("SELECT @@gtid_mode")
-        gtid_mode = cursor.fetchone()[0]
+        try:
+            cursor.execute("SELECT @@gtid_mode")
+            gtid_mode = cursor.fetchone()[0]
+        except Exception:
+            # GTID not enabled yet on this server — that's OK at config stage
+            gtid_mode = "OFF"
         conn.close()
         return {
             "ok": True,
