@@ -2,6 +2,7 @@
 db_replication.py — All /api/db/* endpoints for MySQL GTID replication management.
 """
 import asyncio
+import base64
 import json
 import subprocess
 import shutil
@@ -379,7 +380,10 @@ def _ssh_base(host: str) -> list:
 
 
 def _remote_run(ssh_base: list, cmd: str, input_data: str = None, timeout: int = 20) -> dict:
-    """Run command on remote via SSH, optionally piping input_data through stdin."""
+    """Run command on remote via SSH, optionally piping input_data through stdin.
+    NOTE: When SSH uses -tt (PTY), piping via subprocess stdin hangs because
+    the PTY never delivers EOF. Use _remote_write_file() for writing files instead.
+    """
     try:
         proc = subprocess.run(
             ssh_base + [cmd],
@@ -389,6 +393,18 @@ def _remote_run(ssh_base: list, cmd: str, input_data: str = None, timeout: int =
                 "stderr": proc.stderr.strip(), "returncode": proc.returncode}
     except Exception as e:
         return {"ok": False, "stdout": "", "stderr": str(e), "returncode": -1}
+
+
+def _remote_write_file(ssh_base: list, content: str, remote_path: str,
+                       use_sudo: bool = True, timeout: int = 20) -> dict:
+    """Write content to a remote file without using subprocess stdin pipe.
+    Encodes content as base64 and embeds it in the SSH command string.
+    This avoids the -tt PTY + stdin EOF hang that breaks 'sudo tee' and 'cat >'.
+    """
+    b64 = base64.b64encode(content.encode()).decode()
+    tee = "sudo tee" if use_sudo else "tee"
+    cmd = f"echo '{b64}' | base64 -d | {tee} {remote_path} > /dev/null"
+    return _remote_run(ssh_base, cmd, timeout=timeout)
 
 
 def _detect_db_type(host: str, port: int, user: str, password: str) -> str:
@@ -584,16 +600,15 @@ def push_ssl_to_replica():
     # moodlesync cannot write there directly — use sudo tee for sudoers path,
     # plain SCP for home dir path (moodlesync owns it).
     if sudoers_ok:
-        # Pipe each cert over SSH stdin into sudo tee — proven reliable method
+        # Write each cert via base64-embedded command — avoids -tt PTY stdin hang
         for cert in ["ca-cert.pem", "client-cert.pem", "client-key.pem"]:
             try:
                 cert_content = Path(f"{local_ssl_dir}/{cert}").read_text()
             except Exception as e:
                 return {"ok": False, "error": f"Cannot read local {cert}: {e}", "steps": steps}
-            r = _remote_run(sb,
-                f"sudo tee {remote_ssl_dir}/{cert} > /dev/null",
-                input_data=cert_content,
-                timeout=15)
+            r = _remote_write_file(sb, cert_content,
+                f"{remote_ssl_dir}/{cert}",
+                use_sudo=True, timeout=15)
             steps.append({"step": f"Write {cert} to {remote_ssl_dir}",
                           "ok": r["ok"], "err": r["stderr"]})
             if not r["ok"]:
@@ -847,10 +862,10 @@ ssl-key                  = {ssl_dir}/client-key.pem
     steps.append({"step": "Ensure /var/log/mysql exists", "ok": r["ok"], "err": r["stderr"]})
     # Non-fatal — continue even if sudo fails (may already exist)
 
-    # ── 4. Write cnf to staging via stdin pipe ─────────────────────────────
-    # Use 'sudo tee' not 'cat >' — with -tt PTY, 'cat >' hangs waiting for EOF
-    # that never arrives via subprocess stdin pipe. 'sudo tee' reads and exits cleanly.
-    r = _remote_run(sb, f"sudo tee {staging} > /dev/null", input_data=mycnf_content, timeout=15)
+    # ── 4. Write cnf to staging via base64-embedded command ─────────────
+    # With -tt PTY, piping via subprocess stdin hangs (EOF never delivered).
+    # Embed content as base64 in the command string to avoid stdin entirely.
+    r = _remote_write_file(sb, mycnf_content, staging, use_sudo=True, timeout=15)
     steps.append({"step": f"Write cnf to {staging}", "ok": r["ok"], "err": r["stderr"]})
     if not r["ok"]:
         return {"ok": False, "error": f"Could not write staging cnf: {r['stderr']}", "steps": steps}
