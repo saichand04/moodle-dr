@@ -506,17 +506,26 @@ def push_ssl_to_replica():
         steps.append({"step": f"SCP certs to {remote_staging}", "ok": r["ok"], "err": r["stderr"]})
         if not r["ok"]:
             return {"ok": False, "error": f"SCP failed: {r['stderr']}", "steps": steps}
-        # sudo cp from staging to system path
-        r = _remote_run(sb,
-            f"sudo cp {remote_staging}/ca-cert.pem {remote_staging}/client-cert.pem "
-            f"{remote_staging}/client-key.pem {remote_ssl_dir}/ && "
-            f"sudo chown -R mysql:mysql {remote_ssl_dir} && "
-            f"sudo chmod 640 {remote_ssl_dir}/*.pem",
-            timeout=20)
-        steps.append({"step": f"Install + chown certs in {remote_ssl_dir}",
-                      "ok": r["ok"], "err": r["stderr"]})
-        if not r["ok"]:
-            return {"ok": False, "error": f"Cert install failed: {r['stderr']}", "steps": steps}
+        # Copy each cert individually with sudo (avoid glob/multi-arg issues)
+        all_copy_ok = True
+        for cert in ["ca-cert.pem", "client-cert.pem", "client-key.pem"]:
+            r = _remote_run(sb,
+                f"sudo cp {remote_staging}/{cert} {remote_ssl_dir}/{cert}",
+                timeout=15)
+            steps.append({"step": f"sudo cp {cert} → {remote_ssl_dir}",
+                          "ok": r["ok"], "err": r["stderr"]})
+            if not r["ok"]:
+                all_copy_ok = False
+                return {"ok": False,
+                        "error": f"sudo cp {cert} failed: {r['stderr']}",
+                        "steps": steps}
+        # Set ownership and permissions on each file explicitly (no glob)
+        for cert in ["ca-cert.pem", "client-cert.pem", "client-key.pem"]:
+            _remote_run(sb,
+                f"sudo chown mysql:mysql {remote_ssl_dir}/{cert} && "
+                f"sudo chmod 640 {remote_ssl_dir}/{cert}",
+                timeout=10)
+        steps.append({"step": f"chown + chmod certs in {remote_ssl_dir}", "ok": True, "err": ""})
     else:
         # Home dir (~/mysql-ssl) — SCP directly, moodlesync owns it
         r = run_cmd([
@@ -535,6 +544,17 @@ def push_ssl_to_replica():
         r = _remote_run(sb, f"chmod 644 {remote_ssl_dir}/*.pem", timeout=10)
         steps.append({"step": f"chmod 644 certs in {remote_ssl_dir}",
                       "ok": r["ok"], "err": r["stderr"]})
+
+    # ── Final verification: confirm all 3 cert files actually exist on replica ───
+    for cert in ["ca-cert.pem", "client-cert.pem", "client-key.pem"]:
+        r = _remote_run(sb, f"test -f {remote_ssl_dir}/{cert} && echo ok || echo missing", timeout=10)
+        exists = "ok" in r["stdout"]
+        steps.append({"step": f"Verify {cert} on replica", "ok": exists,
+                      "err": "" if exists else f"{remote_ssl_dir}/{cert} not found after copy"})
+        if not exists:
+            return {"ok": False,
+                    "error": f"{cert} was not copied successfully to {remote_ssl_dir}",
+                    "steps": steps}
 
     # Persist resolved path for configure_replica
     db_db.update_db_config_field("ssl_remote_dir", remote_ssl_dir)
