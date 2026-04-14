@@ -406,33 +406,34 @@ def push_ssl_to_replica():
 
     # ── 3. Decide cert destination ────────────────────────────────────────────
     # If sudoers worked → /etc/mysql/ssl (proper system path, owned by mysql)
-    # Otherwise → /home/moodlesync/mysql-ssl with o+x on home dir so mysql can traverse
+    # Otherwise → /home/moodlesync/mysql-ssl (moodlesync owns it — no sudo needed)
     if sudoers_ok:
         remote_ssl_dir = "/etc/mysql/ssl"
     else:
         remote_ssl_dir = f"/home/{ssh_user}/mysql-ssl"
 
-    # ── 4. Create required directories ───────────────────────────────────────
-    # Also create /var/log/mysql for binlog (MariaDB doesn't auto-create it)
-    mkdir_cmds = [f"mkdir -p {remote_staging}", "mkdir -p /var/log/mysql"]
-    if sudoers_ok:
-        mkdir_cmds += [
-            f"sudo mkdir -p {remote_ssl_dir}",
-            "sudo mkdir -p /var/log/mysql",
-            "sudo chown mysql:mysql /var/log/mysql",
-        ]
-    else:
-        mkdir_cmds += [
-            f"mkdir -p {remote_ssl_dir}",
-            # Allow mysql process to traverse home dir
-            f"chmod o+x /home/{ssh_user}",
-        ]
-    r = _remote_run(sb, " && ".join(mkdir_cmds), timeout=15)
-    steps.append({"step": "Create dirs + /var/log/mysql on replica", "ok": r["ok"], "err": r["stderr"]})
+    # ── 4a. Create the SSL cert directory (always unprivileged for home path) ─
+    r = _remote_run(sb, f"mkdir -p {remote_ssl_dir} && chmod 700 {remote_ssl_dir}", timeout=10)
+    steps.append({"step": f"Create {remote_ssl_dir} on replica", "ok": r["ok"], "err": r["stderr"]})
     if not r["ok"]:
-        return {"ok": False, "error": f"mkdir failed: {r['stderr']}", "steps": steps}
+        return {"ok": False, "error": f"mkdir {remote_ssl_dir} failed: {r['stderr']}", "steps": steps}
 
-    # ── 5. SCP certs to /tmp staging ──────────────────────────────────────────
+    # ── 4b. Allow mysql process to traverse the home dir (o+x) ───────────────
+    r = _remote_run(sb, f"chmod o+x /home/{ssh_user}", timeout=10)
+    steps.append({"step": f"chmod o+x /home/{ssh_user}", "ok": r["ok"], "err": r["stderr"]})
+    # Non-fatal — continue even if it fails
+
+    # ── 4c. Create /var/log/mysql (best-effort with sudo) ─────────────────────
+    r = _remote_run(sb,
+        "sudo mkdir -p /var/log/mysql && sudo chown mysql:mysql /var/log/mysql",
+        timeout=15)
+    steps.append({"step": "Create /var/log/mysql on replica",
+                  "ok": r["ok"], "err": r["stderr"]})
+    # Non-fatal — continue even if sudo fails
+
+    # ── 5. SCP certs directly to final destination ────────────────────────────
+    # SCP as moodlesync directly into remote_ssl_dir (moodlesync owns ~/mysql-ssl)
+    # This avoids the staging+cp pattern that requires sudo for /etc/mysql/ssl
     r = run_cmd([
         "scp", "-i", state.SSH_KEY_PATH,
         "-o", "StrictHostKeyChecking=accept-new",
@@ -440,32 +441,31 @@ def push_ssl_to_replica():
         f"{local_ssl_dir}/ca-cert.pem",
         f"{local_ssl_dir}/client-cert.pem",
         f"{local_ssl_dir}/client-key.pem",
-        f"{ssh_tgt}:{remote_staging}/",
+        f"{ssh_tgt}:{remote_ssl_dir}/",
     ], timeout=30)
-    steps.append({"step": "SCP certs to /tmp/mysql-ssl", "ok": r["ok"], "err": r["stderr"]})
+    steps.append({"step": f"SCP certs to {remote_ssl_dir}", "ok": r["ok"], "err": r["stderr"]})
     if not r["ok"]:
         return {"ok": False, "error": f"SCP failed: {r['stderr']}", "steps": steps}
 
-    # ── 6. Install certs + fix ownership/permissions ─────────────────────────
+    # ── 6. Fix cert permissions ───────────────────────────────────────────────
+    # Certs must be readable by mysql process:
+    #   - o+r so the mysql user (uid 111) can read them from moodlesync home dir
+    #   - 640 is fine if chown mysql:mysql is possible (sudoers path)
     if sudoers_ok:
-        install_cmd = (
-            f"sudo cp {remote_staging}/ca-cert.pem {remote_staging}/client-cert.pem "
-            f"{remote_staging}/client-key.pem {remote_ssl_dir}/ && "
+        perm_cmd = (
             f"sudo chown -R mysql:mysql {remote_ssl_dir} && "
             f"sudo chmod 640 {remote_ssl_dir}/*.pem"
         )
     else:
-        install_cmd = (
-            f"cp {remote_staging}/ca-cert.pem {remote_staging}/client-cert.pem "
-            f"{remote_staging}/client-key.pem {remote_ssl_dir}/ && "
-            f"chmod 640 {remote_ssl_dir}/*.pem && "
-            # mysql process must be able to read these; grant read to others
-            f"chmod o+r {remote_ssl_dir}/*.pem"
+        # moodlesync owns the dir; grant other-read so mysql process can read
+        perm_cmd = (
+            f"chmod 644 {remote_ssl_dir}/*.pem"
         )
-    r = _remote_run(sb, install_cmd, timeout=20)
-    steps.append({"step": f"Install certs to {remote_ssl_dir}", "ok": r["ok"], "err": r["stderr"]})
+    r = _remote_run(sb, perm_cmd, timeout=15)
+    steps.append({"step": f"Fix cert permissions in {remote_ssl_dir}",
+                  "ok": r["ok"], "err": r["stderr"]})
     if not r["ok"]:
-        return {"ok": False, "error": f"Cert install failed: {r['stderr']}", "steps": steps}
+        return {"ok": False, "error": f"chmod certs failed: {r['stderr']}", "steps": steps}
 
     # Persist resolved path for configure_replica
     db_db.update_db_config_field("ssl_remote_dir", remote_ssl_dir)
