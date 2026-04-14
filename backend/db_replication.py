@@ -527,18 +527,15 @@ def push_ssl_to_replica():
     if not r["ok"]:
         return {"ok": False, "error": f"SSH failed: {r['stderr']}", "steps": steps}
 
-    # ── 2. Bootstrap sudoers via stdin pipe ──────────────────────────────────
-    # Dashboard runs as root on source — pipe sudoers content via SSH stdin
-    # into 'sudo tee' on the replica. No password prompt needed from source root.
-    sudoers_rule = (
-        f"{ssh_user} ALL=(root) NOPASSWD: "
-        "/bin/mkdir, /bin/cp, /bin/chown, /bin/chmod, "
-        "/usr/bin/tee, /bin/systemctl, /usr/sbin/mariadbd"
-    )
-    r = _remote_run(sb, "sudo tee /etc/sudoers.d/moodlesync-mysql",
-                    input_data=sudoers_rule + "\n", timeout=15)
-    sudoers_ok = r["ok"]
-    steps.append({"step": "Bootstrap sudoers on replica", "ok": sudoers_ok, "err": r["stderr"]})
+    # ── 2. Check if sudoers is already working ──────────────────────────────
+    # Test with sudo -n true (non-interactive). If it passes, sudoers is set up.
+    # We no longer try to bootstrap sudoers here — that requires writing to
+    # /etc/sudoers.d/ which itself needs root. The Check Sudoers step (run
+    # manually by the admin before Push SSL) is the correct prerequisite.
+    r = _remote_run(sb, "sudo -n true 2>&1; echo exit:$?", timeout=10)
+    sudoers_ok = "exit:0" in r["stdout"]
+    steps.append({"step": "Check sudoers on replica (sudo -n true)", "ok": sudoers_ok,
+                  "err": "" if sudoers_ok else "sudo -n true failed — run Check Sudoers step first"})
 
     # ── 3. Decide cert destination ────────────────────────────────────────────
     # If sudoers worked → /etc/mysql/ssl (proper system path, owned by mysql)
@@ -851,7 +848,9 @@ ssl-key                  = {ssl_dir}/client-key.pem
     # Non-fatal — continue even if sudo fails (may already exist)
 
     # ── 4. Write cnf to staging via stdin pipe ─────────────────────────────
-    r = _remote_run(sb, f"cat > {staging}", input_data=mycnf_content, timeout=15)
+    # Use 'sudo tee' not 'cat >' — with -tt PTY, 'cat >' hangs waiting for EOF
+    # that never arrives via subprocess stdin pipe. 'sudo tee' reads and exits cleanly.
+    r = _remote_run(sb, f"sudo tee {staging} > /dev/null", input_data=mycnf_content, timeout=15)
     steps.append({"step": f"Write cnf to {staging}", "ok": r["ok"], "err": r["stderr"]})
     if not r["ok"]:
         return {"ok": False, "error": f"Could not write staging cnf: {r['stderr']}", "steps": steps}

@@ -1863,7 +1863,8 @@ async function executeDbFailover(){
     <div class="banner-body">${escHtml(r.message||r.error||'')}</div>
     ${r.next_steps?'<ul style="margin-top:8px;padding-left:16px">'+r.next_steps.map(s=>`<li style="font-size:12px;margin-bottom:4px">${escHtml(s)}</li>`).join('')+'</ul>':''}</div></div>`;
 }
-function copyConfigPhp(){const el=document.getElementById('configPhpPreview');if(el){navigator.clipboard.writeText(el.textContent);showToast('Copied!','ok');}}
+function fallbackCopy(text){var ta=document.createElement('textarea');ta.value=text;ta.style.cssText='position:fixed;top:0;left:0;opacity:0';document.body.appendChild(ta);ta.focus();ta.select();try{document.execCommand('copy');showToast('Copied!','ok');}catch(e){showToast('Select text manually (HTTP mode)','warn');}document.body.removeChild(ta);}
+function copyConfigPhp(){const el=document.getElementById('configPhpPreview');if(el){if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(el.textContent).then(()=>showToast('Copied!','ok')).catch(()=>fallbackCopy(el.textContent));}else{fallbackCopy(el.textContent);}}}
 
 function pageDbSettings() {
   return `
@@ -1968,7 +1969,7 @@ async function getReplicaSslScript(){
         </div>
         <pre id="ssl-script-content" style="margin:0;padding:16px 20px;overflow:auto;font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--cyan);flex:1;white-space:pre-wrap;word-break:break-all"></pre>
         <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px">
-          <button onclick="navigator.clipboard.writeText(document.getElementById('ssl-script-content').textContent).then(()=>showToast('Copied!','ok'))" class="btn btn-primary btn-sm">Copy to Clipboard</button>
+          <button onclick="(function(){var txt=document.getElementById('ssl-script-content').textContent;if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(txt).then(()=>showToast('Copied!','ok')).catch(()=>fallbackCopy(txt));}else{fallbackCopy(txt);}})()" class="btn btn-primary btn-sm">Copy to Clipboard</button>
           <button onclick="document.getElementById('ssl-script-modal').remove()" class="btn btn-ghost btn-sm">Close</button>
         </div>
       </div>`;
@@ -2508,7 +2509,7 @@ function updateSSHCmd(){
   const el=document.getElementById('sshTunnelCmd');if(el) el.textContent=cmd;
 }
 function generateSSHCmd(){ updateSSHCmd(); }
-function copySSHCmd(){const el=document.getElementById('sshTunnelCmd');if(el){navigator.clipboard.writeText(el.textContent);showToast('SSH command copied!','ok');}}
+function copySSHCmd(){const el=document.getElementById('sshTunnelCmd');if(el){if(navigator.clipboard&&window.isSecureContext){navigator.clipboard.writeText(el.textContent).then(()=>showToast('SSH command copied!','ok')).catch(()=>fallbackCopy(el.textContent));}else{fallbackCopy(el.textContent);}}}
 
 async function cfRefresh(){
   const r=await apiGet('/api/integrations/cloudflare/status');
