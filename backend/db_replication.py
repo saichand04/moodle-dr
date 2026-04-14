@@ -227,10 +227,16 @@ def test_replica_connection():
 # ── Setup endpoints ───────────────────────────────────────────────────────────
 
 SUDOERS_FILE  = "/etc/sudoers.d/moodlesync-mysql"
+# !use_pty is critical: Ubuntu 24.04 sets 'use_pty' globally in sudoers.
+# Without disabling it for moodlesync, sudo over SSH (no PTY) silently
+# exits 0 but executes nothing — causing all remote sudo calls to appear
+# to succeed while actually doing nothing.
 SUDOERS_RULE  = (
+    "Defaults:{user} !use_pty\n"
     "{user} ALL=(root) NOPASSWD: "
     "/bin/mkdir, /bin/cp, /bin/chown, /bin/chmod, "
-    "/usr/bin/tee, /bin/systemctl, /usr/sbin/mariadbd, /usr/sbin/mysqld"
+    "/usr/bin/tee, /bin/systemctl, /usr/sbin/mariadbd, /usr/sbin/mysqld, "
+    "/usr/bin/stat, /usr/bin/ls"
 )
 
 @router.get("/setup/check-replica-sudoers")
@@ -356,12 +362,18 @@ def generate_ssl_certs():
 
 
 def _ssh_base(host: str) -> list:
-    """Build SSH base command for moodlesync user."""
+    """Build SSH base command for moodlesync user.
+    -tt forces PTY allocation — required when sudoers has 'use_pty' (Ubuntu 24.04 default).
+    Without a PTY, sudo silently exits 0 but executes nothing.
+    BatchMode=no is intentional: BatchMode=yes suppresses PTY and breaks use_pty sudo.
+    """
     return [
         "ssh", "-i", state.SSH_KEY_PATH,
         "-o", "StrictHostKeyChecking=accept-new",
-        "-o", "BatchMode=yes",
+        "-o", "BatchMode=no",
         "-o", "ConnectTimeout=10",
+        "-o", "PasswordAuthentication=no",
+        "-tt",                              # force PTY — needed for use_pty sudoers
         f"{state.AZURE_VM_USER}@{host}",
     ]
 
