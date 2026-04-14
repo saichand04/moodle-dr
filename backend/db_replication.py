@@ -683,6 +683,36 @@ def configure_source():
         gtid_lines = "gtid_mode = ON\nenforce_gtid_consistency = ON"
         cnf_dir = "/etc/mysql/mysql.conf.d"
 
+    # ── SSL cert validation — MUST exist before writing to cnf ───────────────
+    # Writing empty or missing cert paths causes MariaDB to fail on startup.
+    # Safety rule: never restart source DB with an invalid SSL config.
+    ssl_ca   = cfg.get('ssl_ca_path',   '/etc/mysql/ssl/ca-cert.pem')
+    ssl_cert = cfg.get('ssl_cert_path', '/etc/mysql/ssl/client-cert.pem')
+    ssl_key  = cfg.get('ssl_key_path',  '/etc/mysql/ssl/client-key.pem')
+
+    ssl_paths_valid = all([
+        ssl_ca   and Path(ssl_ca).is_file(),
+        ssl_cert and Path(ssl_cert).is_file(),
+        ssl_key  and Path(ssl_key).is_file(),
+    ])
+
+    missing_certs = []
+    for label, path in [("ssl_ca", ssl_ca), ("ssl_cert", ssl_cert), ("ssl_key", ssl_key)]:
+        if not path:
+            missing_certs.append(f"{label}: (empty — not configured)")
+        elif not Path(path).is_file():
+            missing_certs.append(f"{label}: {path} (file not found)")
+
+    if missing_certs:
+        steps.append({"step": "SSL cert validation", "ok": False,
+                      "err": "Missing certs: " + "; ".join(missing_certs) +
+                             " — SSL lines omitted from cnf to protect production DB"})
+        ssl_block = "# SSL: cert files not found — configure SSL paths and re-run Configure Source\n# ssl-ca   = /etc/mysql/ssl/ca-cert.pem\n# ssl-cert = /etc/mysql/ssl/client-cert.pem\n# ssl-key  = /etc/mysql/ssl/client-key.pem"
+    else:
+        steps.append({"step": "SSL cert validation", "ok": True,
+                      "err": f"All 3 cert files verified: {ssl_ca}, {ssl_cert}, {ssl_key}"})
+        ssl_block = f"ssl-ca                   = {ssl_ca}\nssl-cert                 = {ssl_cert}\nssl-key                  = {ssl_key}"
+
     mycnf_additions = f"""# === Moodle DR Source Replication Config (auto-generated) ===
 # DB type: {db_type}
 [mysqld]
@@ -693,9 +723,7 @@ binlog_format            = ROW
 binlog_do_db             = {cfg.get('moodle_db_name', 'moodle')}
 expire_logs_days         = 7
 max_binlog_size          = 100M
-ssl-ca                   = {cfg.get('ssl_ca_path', '/etc/mysql/ssl/ca-cert.pem')}
-ssl-cert                 = {cfg.get('ssl_cert_path', '/etc/mysql/ssl/client-cert.pem')}
-ssl-key                  = {cfg.get('ssl_key_path', '/etc/mysql/ssl/client-key.pem')}
+{ssl_block}
 """
 
     # ── 3. Ensure /var/log/mysql exists and is owned by mysql ─────────────────
@@ -728,13 +756,21 @@ ssl-key                  = {cfg.get('ssl_key_path', '/etc/mysql/ssl/client-key.p
         return {"ok": False, "error": str(e), "steps": steps}
 
     # ── 5. Auto-restart source DB service ────────────────────────────────────
-    r = run_cmd(["systemctl", "restart", svc_name], timeout=30)
-    steps.append({"step": f"Restart {svc_name} on source", "ok": r["ok"], "err": r["stderr"]})
-    if r["ok"]:
-        # Verify it came up
-        r2 = run_cmd(["systemctl", "is-active", svc_name], timeout=10)
-        steps.append({"step": f"{svc_name} service active",
-                      "ok": "active" in r2["stdout"], "err": r2["stdout"]})
+    # SAFETY: only restart if SSL config is valid (or SSL is not configured).
+    # A bad SSL cnf will crash production MariaDB — never restart blindly.
+    if not ssl_paths_valid and missing_certs:
+        steps.append({"step": f"Restart {svc_name} on source", "ok": False,
+                      "err": "Restart skipped — SSL cert paths missing or invalid. "
+                             "Fix SSL cert paths then re-run Configure Source. "
+                             "Production DB untouched."})
+    else:
+        r = run_cmd(["systemctl", "restart", svc_name], timeout=30)
+        steps.append({"step": f"Restart {svc_name} on source", "ok": r["ok"], "err": r["stderr"]})
+        if r["ok"]:
+            # Verify it came up
+            r2 = run_cmd(["systemctl", "is-active", svc_name], timeout=10)
+            steps.append({"step": f"{svc_name} service active",
+                          "ok": "active" in r2["stdout"], "err": r2["stdout"]})
 
     db_db.log_audit("configure_source", result="ok",
                     details={"db_type": db_type, "cnf": str(mycnf_path)})
