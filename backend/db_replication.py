@@ -1000,6 +1000,85 @@ async def _run_seed_job():
     })
 
     try:
+        # ── Pre-flight checks ──────────────────────────────────────────────────
+        state.db_seed_job["phase"] = "preflight"
+        state.db_seed_job["output"].append("Running pre-flight checks...")
+        replica_host = (cfg.get("replica_host") or "")
+        replica_user = (cfg.get("replica_db_user") or "root")
+        replica_pass = (cfg.get("replica_db_password") or "")
+        source_host  = (cfg.get("source_host") or "127.0.0.1")
+        source_user  = (cfg.get("source_db_user") or "root")
+        source_pass  = (cfg.get("source_db_password") or "")
+
+        if not replica_host:
+            raise Exception("Pre-flight failed: replica_host not configured in DB Settings")
+        if not replica_user:
+            raise Exception("Pre-flight failed: replica_db_user not configured")
+        if not replica_pass:
+            raise Exception("Pre-flight failed: replica_db_password not configured")
+        if not source_pass:
+            raise Exception("Pre-flight failed: source_db_password not configured")
+
+        # Test source DB connection
+        try:
+            import pymysql as _pm
+            _sc = _pm.connect(host=source_host, port=int(cfg.get("source_port") or 3306),
+                              user=source_user, password=source_pass,
+                              db=db_name, connect_timeout=10)
+            _sc.close()
+            state.db_seed_job["output"].append(f"✓ Source DB connection OK ({source_host})")
+        except Exception as e:
+            raise Exception(f"Pre-flight failed: cannot connect to source DB: {e}")
+
+        # Test replica SSH
+        ssh_test = await asyncio.create_subprocess_exec(
+            "ssh", "-i", state.SSH_KEY_PATH,
+            "-o", "StrictHostKeyChecking=accept-new",
+            "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+            f"moodlesync@{replica_host}", "echo ok",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        _, ssh_err = await ssh_test.communicate()
+        if ssh_test.returncode != 0:
+            raise Exception(f"Pre-flight failed: SSH to replica failed: {ssh_err.decode()[:200]}")
+        state.db_seed_job["output"].append(f"✓ SSH to replica OK ({replica_host})")
+
+        # Write a temp .my.cnf on replica so passwords with special chars work safely.
+        # We base64-encode the content here, pass it as a plain env-safe string via
+        # stdin using 'base64 -d', then write it — no shell interpolation of passwords.
+        mycnf_content = f"[client]\nuser={replica_user}\npassword={replica_pass}\n[mysql]\nuser={replica_user}\npassword={replica_pass}\n"
+        import base64 as _b64
+        mycnf_b64 = _b64.b64encode(mycnf_content.encode()).decode()
+        write_mycnf = await asyncio.create_subprocess_exec(
+            "ssh", "-i", state.SSH_KEY_PATH,
+            "-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes",
+            f"moodlesync@{replica_host}",
+            # Pass the b64 string as the remote command argument — it is pure base64
+            # (A-Z a-z 0-9 + / =) so no shell quoting issues at all.
+            f"echo '{mycnf_b64}' | base64 -d > ~/.moodle_dr_my.cnf && chmod 600 ~/.moodle_dr_my.cnf",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        _, wcnf_err = await write_mycnf.communicate()
+        if write_mycnf.returncode not in (0, None):
+            raise Exception(f"Pre-flight failed: could not write .my.cnf on replica: {wcnf_err.decode()[:200]}")
+        state.db_seed_job["output"].append("✓ Credentials file written on replica (.moodle_dr_my.cnf)")
+
+        # Test replica DB connection using the safe .my.cnf
+        replica_test = await asyncio.create_subprocess_exec(
+            "ssh", "-i", state.SSH_KEY_PATH,
+            "-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes",
+            f"moodlesync@{replica_host}",
+            "mysql --defaults-file=~/.moodle_dr_my.cnf -e 'SELECT 1' 2>&1; echo exit:$?",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        rt_out, _ = await replica_test.communicate()
+        rt_str = rt_out.decode(errors='replace')
+        if "exit:0" not in rt_str:
+            raise Exception(f"Pre-flight failed: cannot connect to replica DB: {rt_str[:300]}")
+        state.db_seed_job["output"].append(f"✓ Replica DB connection OK ({replica_host})")
+        state.db_seed_job["output"].append("✓ All pre-flight checks passed")
+        state.db_seed_job["progress"] = 5
+
         if seed_method == "mysqldump":
             await _seed_mysqldump(cfg, db_name)
         else:
@@ -1121,6 +1200,10 @@ async def _seed_mysqldump(cfg: dict, db_name: str):
         state.db_seed_job["output"].append("Importing dump on replica (this may take a while)...")
 
         # ── Import on replica via SSH ─────────────────────────────────────────
+        # IMPORTANT: we NEVER use -p<password> on the shell — passwords with @, !
+        # and other special chars break every shell quoting strategy. Instead we
+        # use ~/.moodle_dr_my.cnf written during pre-flight (pure base64 decode).
+
         # Create DB first if it doesn't exist
         create_db_cmd = [
             "ssh", "-i", state.SSH_KEY_PATH,
@@ -1128,20 +1211,25 @@ async def _seed_mysqldump(cfg: dict, db_name: str):
             "-o", "BatchMode=yes",
             "-o", "ConnectTimeout=30",
             f"moodlesync@{replica_host}",
-            f"mysql -u{replica_user} -p{replica_pass} -e 'CREATE DATABASE IF NOT EXISTS `{db_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;'"
+            f"mysql --defaults-file=~/.moodle_dr_my.cnf -e "
+            f"'CREATE DATABASE IF NOT EXISTS `{db_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;'"
         ]
         cdb = await asyncio.create_subprocess_exec(*create_db_cmd,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-        await cdb.communicate()
+        _, cdb_err = await cdb.communicate()
+        if cdb.returncode != 0:
+            state.db_seed_job["output"].append(f"WARN create DB: {cdb_err.decode(errors='replace')[:200]}")
 
-        # Run import
+        # Run import — use --defaults-file, pipe SQL in via a sub-shell
+        # The pipeline runs entirely inside the SSH remote shell, so mysql reads
+        # from stdin (/tmp/moodle_seed.sql). No password on the command line.
         import_cmd = [
             "ssh", "-i", state.SSH_KEY_PATH,
             "-o", "StrictHostKeyChecking=accept-new",
             "-o", "BatchMode=yes",
             "-o", "ConnectTimeout=30",
             f"moodlesync@{replica_host}",
-            f"mysql -u{replica_user} -p'{replica_pass}' {db_name} < /tmp/moodle_seed.sql && rm -f /tmp/moodle_seed.sql"
+            f"mysql --defaults-file=~/.moodle_dr_my.cnf {db_name} < /tmp/moodle_seed.sql && rm -f /tmp/moodle_seed.sql"
         ]
         imp_proc = await asyncio.create_subprocess_exec(*import_cmd,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
@@ -1174,12 +1262,20 @@ async def _seed_mysqldump(cfg: dict, db_name: str):
             f"MASTER_SSL_KEY='/var/lib/mysql/ssl/client-key.pem'; "
             f"START SLAVE;"
         )
+        # Use --defaults-file here too — CHANGE MASTER SQL contains single quotes
+        # (MASTER_PASSWORD='...') so we must NOT also have -p'...' on the CLI.
+        # Write change_master_sql to a temp file on the replica, then source it.
+        cm_sql_b64 = _b64.b64encode(change_master_sql.encode()).decode()
         cm_cmd = [
             "ssh", "-i", state.SSH_KEY_PATH,
             "-o", "StrictHostKeyChecking=accept-new",
             "-o", "BatchMode=yes",
             f"moodlesync@{replica_host}",
-            f"mysql -u{replica_user} -p'{replica_pass}' -e \"{change_master_sql}\""
+            (
+                f"echo '{cm_sql_b64}' | base64 -d > /tmp/.mdr_cm.sql && "
+                f"mysql --defaults-file=~/.moodle_dr_my.cnf < /tmp/.mdr_cm.sql; "
+                f"EC=$?; rm -f /tmp/.mdr_cm.sql; exit $EC"
+            )
         ]
         cm_proc = await asyncio.create_subprocess_exec(*cm_cmd,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
@@ -1196,10 +1292,34 @@ async def _seed_mysqldump(cfg: dict, db_name: str):
         state.db_seed_job["ended_at"] = datetime.utcnow().isoformat()
         state.db_seed_job["output"].append("✓ Seed complete! Go to DB Replication Status and verify IO/SQL threads.")
         dump_file.unlink(missing_ok=True)
+        # Clean up credentials file from replica
+        try:
+            await asyncio.create_subprocess_exec(
+                "ssh", "-i", state.SSH_KEY_PATH,
+                "-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes",
+                f"moodlesync@{replica_host}",
+                "rm -f ~/.moodle_dr_my.cnf",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+        except Exception:
+            pass
         db_db.log_audit("seed_database", result="ok", details={"method": "mysqldump", "db": db_name, "size": size_human})
 
     except Exception as e:
         dump_file.unlink(missing_ok=True)
+        # Clean up credentials file from replica on failure too
+        try:
+            _rh = (cfg.get("replica_host") or "")
+            if _rh:
+                await asyncio.create_subprocess_exec(
+                    "ssh", "-i", state.SSH_KEY_PATH,
+                    "-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes",
+                    f"moodlesync@{_rh}",
+                    "rm -f ~/.moodle_dr_my.cnf",
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                )
+        except Exception:
+            pass
         state.db_seed_job.update({
             "running": False, "result": "error", "error": str(e),
             "ended_at": datetime.utcnow().isoformat(),
