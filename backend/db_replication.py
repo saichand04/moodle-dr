@@ -1046,7 +1046,14 @@ async def _run_seed_job():
         # Write a temp .my.cnf on replica so passwords with special chars work safely.
         # We base64-encode the content here, pass it as a plain env-safe string via
         # stdin using 'base64 -d', then write it — no shell interpolation of passwords.
-        mycnf_content = f"[client]\nuser={replica_user}\npassword={replica_pass}\n[mysql]\nuser={replica_user}\npassword={replica_pass}\n"
+        # host=127.0.0.1 forces TCP — avoids Unix socket which maps to @'localhost'
+        # The sqlmoodle account was created with @'%' (covers TCP, not socket)
+        mycnf_content = (
+            f"[client]\nuser={replica_user}\npassword={replica_pass}\n"
+            f"host=127.0.0.1\nport=3306\n"
+            f"[mysql]\nuser={replica_user}\npassword={replica_pass}\n"
+            f"host=127.0.0.1\nport=3306\n"
+        )
         import base64 as _b64
         mycnf_b64 = _b64.b64encode(mycnf_content.encode()).decode()
         write_mycnf = await asyncio.create_subprocess_exec(
