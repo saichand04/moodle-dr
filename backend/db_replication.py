@@ -1076,11 +1076,37 @@ async def _run_seed_job():
         if "exit:0" not in rt_str:
             raise Exception(f"Pre-flight failed: cannot connect to replica DB: {rt_str[:300]}")
         state.db_seed_job["output"].append(f"✓ Replica DB connection OK ({replica_host})")
-        state.db_seed_job["output"].append("✓ All pre-flight checks passed")
+
+        # ── Check if a previous dump already landed on the replica ────────────
+        # If /tmp/moodle_seed.sql exists AND is non-zero, we can skip the
+        # expensive dump+transfer and jump straight to import.
+        REPLICA_DUMP = "/tmp/moodle_seed.sql"
+        check_dump = await asyncio.create_subprocess_exec(
+            "ssh", "-i", state.SSH_KEY_PATH,
+            "-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes",
+            f"moodlesync@{replica_host}",
+            f"test -s {REPLICA_DUMP} && stat --printf='%s' {REPLICA_DUMP} || echo MISSING",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        chk_out, _ = await check_dump.communicate()
+        chk_str = chk_out.decode(errors='replace').strip()
+        dump_exists = chk_str != "MISSING" and chk_str.isdigit() and int(chk_str) > 0
+
+        if dump_exists:
+            dump_bytes = int(chk_str)
+            dump_human = f"{dump_bytes/1024/1024:.1f} MB" if dump_bytes < 1024**3 else f"{dump_bytes/1024/1024/1024:.2f} GB"
+            state.db_seed_job["dump_size_human"] = dump_human
+            state.db_seed_job["output"].append(
+                f"✓ Found existing dump on replica ({dump_human}) — resuming from import phase"
+            )
+            state.db_seed_job["output"].append("✓ All pre-flight checks passed (RESUME mode)")
+        else:
+            state.db_seed_job["output"].append("✓ All pre-flight checks passed (FRESH seed)")
+
         state.db_seed_job["progress"] = 5
 
         if seed_method == "mysqldump":
-            await _seed_mysqldump(cfg, db_name)
+            await _seed_mysqldump(cfg, db_name, skip_dump=dump_exists)
         else:
             await _seed_xtrabackup(cfg, db_name)
     except Exception as e:
@@ -1091,7 +1117,7 @@ async def _run_seed_job():
         db_db.log_audit("seed_database", result="error", details={"error": str(e)})
 
 
-async def _seed_mysqldump(cfg: dict, db_name: str):
+async def _seed_mysqldump(cfg: dict, db_name: str, skip_dump: bool = False):
     source_host = (cfg.get("source_host") or "127.0.0.1")
     source_port = (cfg.get("source_port") or 3306)
     source_user = (cfg.get("source_db_user") or "root")
@@ -1100,101 +1126,106 @@ async def _seed_mysqldump(cfg: dict, db_name: str):
     replica_user = (cfg.get("replica_db_user") or "root")
     replica_pass = (cfg.get("replica_db_password") or "")
 
-    dump_path = f"/tmp/moodle_seed_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}.sql.gz"
+    # Fixed remote dump path — consistent so resume detection always finds it
+    REPLICA_DUMP = "/tmp/moodle_seed.sql"
+    dump_path = f"/tmp/moodle_seed_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}.sql"
+    dump_file = Path(dump_path)
 
-    state.db_seed_job["phase"] = "dumping"
-    state.db_seed_job["progress"] = 10
-    state.db_seed_job["output"].append(f"Starting mysqldump of {db_name}...")
-
-    # Detect source DB type to build correct dump flags
-    # --set-gtid-purged and --gtid are MySQL-only; MariaDB uses --master-data
-    # MariaDB mysqldump exits immediately if unknown flags are passed
-    src_is_mariadb = "mariadb" in (cfg.get("source_db_version") or "").lower()
-    if not src_is_mariadb:
-        # detect dynamically
-        try:
-            import pymysql as _pym
-            _c = _pym.connect(host=source_host, port=int(source_port),
-                              user=source_user, password=source_pass, connect_timeout=5)
-            _v = _c.get_server_info().lower()
-            _c.close()
-            src_is_mariadb = "mariadb" in _v
-        except Exception:
-            src_is_mariadb = True  # default to MariaDB-safe flags
-
-    if src_is_mariadb:
-        # MariaDB-safe flags: no --set-gtid-purged, no --gtid
-        dump_cmd = [
-            "mysqldump",
-            f"-h{source_host}", f"-P{str(source_port)}",
-            f"-u{source_user}", f"-p{source_pass}",
-            "--single-transaction", "--master-data=2",
-            "--routines", "--triggers", "--events",
-            db_name,
-        ]
-    else:
-        # MySQL 8.x flags
-        dump_cmd = [
-            "mysqldump",
-            f"-h{source_host}", f"-P{str(source_port)}",
-            f"-u{source_user}", f"-p{source_pass}",
-            "--single-transaction", "--master-data=2",
-            "--set-gtid-purged=ON", "--gtid",
-            "--routines", "--triggers", "--events",
-            db_name,
-        ]
-
-    # ── Stream mysqldump → disk (never buffer in RAM — OOM kills uvicorn) ────────────
-    dump_file = Path(dump_path.replace(".gz", ""))
-    try:
-        state.db_seed_job["output"].append(f"Streaming mysqldump to {dump_file} ...")
-        dump_proc = await asyncio.create_subprocess_exec(
-            *dump_cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+    if skip_dump:
+        # ── RESUME: dump already on replica — skip straight to import ─────────
+        state.db_seed_job["phase"] = "importing"
+        state.db_seed_job["progress"] = 65
+        state.db_seed_job["output"].append(
+            f"Resuming: skipping dump+transfer, importing existing {REPLICA_DUMP} ..."
         )
-        # Write stdout to disk in chunks — never load full dump into RAM
-        import aiofiles
-        async with aiofiles.open(str(dump_file), 'wb') as f:
-            while True:
-                chunk = await dump_proc.stdout.read(1024 * 1024)  # 1 MB chunks
-                if not chunk:
-                    break
-                await f.write(chunk)
-                # Update size estimate while streaming
+    else:
+        state.db_seed_job["phase"] = "dumping"
+        state.db_seed_job["progress"] = 10
+        state.db_seed_job["output"].append(f"Starting mysqldump of {db_name}...")
+
+    try:
+        if not skip_dump:
+            # ── Detect source DB type ─────────────────────────────────────────────
+            src_is_mariadb = "mariadb" in (cfg.get("source_db_version") or "").lower()
+            if not src_is_mariadb:
                 try:
-                    sz = dump_file.stat().st_size
-                    state.db_seed_job["dump_size_human"] = f"{sz/1024/1024:.0f} MB"
+                    import pymysql as _pym
+                    _c = _pym.connect(host=source_host, port=int(source_port),
+                                      user=source_user, password=source_pass, connect_timeout=5)
+                    _v = _c.get_server_info().lower()
+                    _c.close()
+                    src_is_mariadb = "mariadb" in _v
                 except Exception:
-                    pass
+                    src_is_mariadb = True
 
-        _, stderr_bytes = await dump_proc.communicate()
-        if dump_proc.returncode != 0:
-            raise Exception(f"mysqldump failed: {stderr_bytes.decode(errors='replace')[:500]}")
+            if src_is_mariadb:
+                dump_cmd = [
+                    "mysqldump",
+                    f"-h{source_host}", f"-P{str(source_port)}",
+                    f"-u{source_user}", f"-p{source_pass}",
+                    "--single-transaction", "--master-data=2",
+                    "--routines", "--triggers", "--events",
+                    db_name,
+                ]
+            else:
+                dump_cmd = [
+                    "mysqldump",
+                    f"-h{source_host}", f"-P{str(source_port)}",
+                    f"-u{source_user}", f"-p{source_pass}",
+                    "--single-transaction", "--master-data=2",
+                    "--set-gtid-purged=ON", "--gtid",
+                    "--routines", "--triggers", "--events",
+                    db_name,
+                ]
 
-        size = dump_file.stat().st_size
-        size_human = f"{size/1024/1024:.1f} MB" if size < 1024**3 else f"{size/1024/1024/1024:.2f} GB"
-        state.db_seed_job["dump_size_human"] = size_human
-        state.db_seed_job["progress"] = 40
-        state.db_seed_job["phase"] = "transferring"
-        state.db_seed_job["output"].append(f"Dump complete: {size_human} — transferring to replica...")
+            # ── Stream mysqldump → disk (1 MB chunks — never buffer full dump in RAM) ──
+            state.db_seed_job["output"].append(f"Streaming mysqldump to {dump_file} ...")
+            dump_proc = await asyncio.create_subprocess_exec(
+                *dump_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            import aiofiles
+            async with aiofiles.open(str(dump_file), 'wb') as f:
+                while True:
+                    chunk = await dump_proc.stdout.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    await f.write(chunk)
+                    try:
+                        sz = dump_file.stat().st_size
+                        state.db_seed_job["dump_size_human"] = f"{sz/1024/1024:.0f} MB"
+                    except Exception:
+                        pass
 
-        # ── SCP dump file to replica ──────────────────────────────────────────────
-        scp_cmd = [
-            "scp",
-            "-i", state.SSH_KEY_PATH,
-            "-o", "StrictHostKeyChecking=accept-new",
-            "-o", "BatchMode=yes",
-            "-o", "ConnectTimeout=30",
-            str(dump_file),
-            f"moodlesync@{replica_host}:/tmp/moodle_seed.sql"
-        ]
-        scp_proc = await asyncio.create_subprocess_exec(*scp_cmd,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-        _, scp_err = await scp_proc.communicate()
-        if scp_proc.returncode != 0:
-            raise Exception(f"SCP failed: {scp_err.decode(errors='replace')[:300]}")
+            _, stderr_bytes = await dump_proc.communicate()
+            if dump_proc.returncode != 0:
+                raise Exception(f"mysqldump failed: {stderr_bytes.decode(errors='replace')[:500]}")
 
+            size = dump_file.stat().st_size
+            size_human = f"{size/1024/1024:.1f} MB" if size < 1024**3 else f"{size/1024/1024/1024:.2f} GB"
+            state.db_seed_job["dump_size_human"] = size_human
+            state.db_seed_job["progress"] = 40
+            state.db_seed_job["phase"] = "transferring"
+            state.db_seed_job["output"].append(f"Dump complete: {size_human} — transferring to replica...")
+
+            # ── SCP dump file to replica ──────────────────────────────────────────
+            scp_cmd = [
+                "scp",
+                "-i", state.SSH_KEY_PATH,
+                "-o", "StrictHostKeyChecking=accept-new",
+                "-o", "BatchMode=yes",
+                "-o", "ConnectTimeout=30",
+                str(dump_file),
+                f"moodlesync@{replica_host}:{REPLICA_DUMP}"
+            ]
+            scp_proc = await asyncio.create_subprocess_exec(*scp_cmd,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            _, scp_err = await scp_proc.communicate()
+            if scp_proc.returncode != 0:
+                raise Exception(f"SCP failed: {scp_err.decode(errors='replace')[:300]}")
+
+        # ── Import phase (always runs — fresh or resume) ───────────────────────
         state.db_seed_job["progress"] = 65
         state.db_seed_job["phase"] = "importing"
         state.db_seed_job["output"].append("Importing dump on replica (this may take a while)...")
@@ -1229,7 +1260,7 @@ async def _seed_mysqldump(cfg: dict, db_name: str):
             "-o", "BatchMode=yes",
             "-o", "ConnectTimeout=30",
             f"moodlesync@{replica_host}",
-            f"mysql --defaults-file=~/.moodle_dr_my.cnf {db_name} < /tmp/moodle_seed.sql && rm -f /tmp/moodle_seed.sql"
+            f"mysql --defaults-file=~/.moodle_dr_my.cnf {db_name} < {REPLICA_DUMP} && rm -f {REPLICA_DUMP}"
         ]
         imp_proc = await asyncio.create_subprocess_exec(*import_cmd,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
