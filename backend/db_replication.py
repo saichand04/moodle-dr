@@ -1089,19 +1089,39 @@ async def _run_seed_job():
             # not @'localhost'. Grant @'localhost' via root (sudo mysql) and retry.
             if "Access denied" in rt_str and "localhost" in rt_str:
                 state.db_seed_job["output"].append(
-                    "⚠ Replica DB: @'localhost' grant missing — auto-fixing via sudo..."
+                    "⚠ Replica DB: @'localhost' grant missing — auto-fixing via admmoodle..."
                 )
-                # Build GRANT SQL and base64-encode so no shell quoting issues
+                # ── Step A: update the sudoers file via admmoodle (has full sudo) ──
+                # This ensures moodlesync can run mysql/mariadb via sudo going forward.
+                admin_user = getattr(state, 'ADMIN_VM_USER', 'admmoodle')
+                sudoers_rule = SUDOERS_RULE.format(user=state.AZURE_VM_USER)
+                sudoers_b64 = __import__('base64').b64encode(sudoers_rule.encode()).decode()
+                sudoers_cmd = (
+                    f"echo '{sudoers_b64}' | base64 -d | sudo tee {SUDOERS_FILE} > /dev/null && "
+                    f"sudo chmod 440 {SUDOERS_FILE} && sudo visudo -c -f {SUDOERS_FILE} && echo sudoers_ok"
+                )
+                sud_proc = await asyncio.create_subprocess_exec(
+                    "ssh", "-i", state.SSH_KEY_PATH,
+                    "-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes",
+                    f"{admin_user}@{replica_host}", sudoers_cmd,
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                )
+                sud_out, sud_err = await sud_proc.communicate()
+                if "sudoers_ok" in sud_out.decode(errors='replace'):
+                    state.db_seed_job["output"].append("✓ Sudoers rule updated on replica (mysql/mariadb added)")
+                else:
+                    state.db_seed_job["output"].append(
+                        f"⚠ Sudoers update warning: {sud_err.decode()[:100]} — continuing anyway"
+                    )
+
+                # ── Step B: create @'localhost' grant via admmoodle + sudo mariadb ──
                 grant_sql = (
                     f"GRANT ALL PRIVILEGES ON *.* TO '{replica_user}'@'localhost' "
                     f"IDENTIFIED BY '{replica_pass}' WITH GRANT OPTION; "
                     f"FLUSH PRIVILEGES;"
                 )
                 grant_b64 = __import__('base64').b64encode(grant_sql.encode()).decode()
-                # Try mariadb first (Ubuntu 24.04), fall back to mysql
-                # sudo runs passwordless — /usr/bin/mariadb and /usr/bin/mysql must
-                # be in the sudoers rule for moodlesync (NOPASSWD)
-                fix_cmd = (
+                grant_cmd = (
                     f"echo '{grant_b64}' | base64 -d > /tmp/.mdr_grant.sql && "
                     f"(sudo mariadb < /tmp/.mdr_grant.sql 2>/dev/null || "
                     f" sudo mysql   < /tmp/.mdr_grant.sql 2>/dev/null); "
@@ -1110,19 +1130,18 @@ async def _run_seed_job():
                 fix_proc = await asyncio.create_subprocess_exec(
                     "ssh", "-i", state.SSH_KEY_PATH,
                     "-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes",
-                    f"moodlesync@{replica_host}", fix_cmd,
+                    f"{admin_user}@{replica_host}", grant_cmd,
                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
                 )
                 _, fix_err = await fix_proc.communicate()
                 if fix_proc.returncode != 0:
                     raise Exception(
-                        f"Pre-flight failed: cannot connect to replica DB and "
-                        f"auto-fix grant failed (sudo mariadb/mysql returned non-zero). "
-                        f"Ensure /usr/bin/mariadb and /usr/bin/mysql are in the moodlesync "
-                        f"sudoers NOPASSWD rule on the replica, then retry.\n"
-                        f"Detail: {fix_err.decode()[:200]}"
+                        f"Pre-flight failed: auto-fix grant failed via {admin_user}. "
+                        f"Ensure the SSH key works for {admin_user}@{replica_host} "
+                        f"and that {admin_user} has passwordless sudo.\n"
+                        f"Detail: {fix_err.decode()[:300]}"
                     )
-                state.db_seed_job["output"].append("✓ @'localhost' grant created on replica")
+                state.db_seed_job["output"].append(f"✓ @'localhost' grant created on replica via {admin_user}")
             else:
                 raise Exception(f"Pre-flight failed: cannot connect to replica DB: {rt_str[:300]}")
         state.db_seed_job["output"].append(f"✓ Replica DB connection OK ({replica_host})")

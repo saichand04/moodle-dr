@@ -7,6 +7,7 @@ main.py populates the config vars and trigger_rsync callback at startup.
 # ── Runtime config (populated from env in main.py) ────────────────────────────
 AZURE_VM_IP   = ""
 AZURE_VM_USER = "moodlesync"
+ADMIN_VM_USER = "admmoodle"   # sudo-capable admin user on the replica
 SSH_KEY_PATH  = "/root/.ssh/moodle_rsync_ed25519"
 SOURCE_PATH   = "/var/www/Azure-MoodleData/"
 TARGET_PATH   = "/moodledata/"

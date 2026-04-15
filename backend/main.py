@@ -40,6 +40,7 @@ from watchdog import ConnectivityWatchdog
 # ── Runtime config from environment ───────────────────────────────────────────
 state.AZURE_VM_IP   = os.environ.get("AZURE_VM_IP", "")
 state.AZURE_VM_USER = os.getenv("AZURE_VM_USER", "moodlesync")
+state.ADMIN_VM_USER = os.getenv("ADMIN_VM_USER", "admmoodle")
 state.SSH_KEY_PATH  = os.getenv("SSH_KEY_PATH", "/root/.ssh/moodle_rsync_ed25519")
 state.SOURCE_PATH   = os.getenv("SOURCE_PATH", "/var/www/Azure-MoodleData/")
 state.TARGET_PATH   = os.getenv("TARGET_PATH", "/moodledata/")
