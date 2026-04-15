@@ -154,6 +154,9 @@ def save_db_config_endpoint(body: dict):
         if body.get("replica_db_password") == "***":
             body["replica_db_password"] = existing_raw.get("replica_db_password", "")
         db_db.save_db_config(body)
+        # Keep state.ADMIN_VM_USER in sync immediately — no restart needed
+        if body.get("admin_ssh_user"):
+            state.ADMIN_VM_USER = body["admin_ssh_user"]
         db_db.log_audit("save_config", details={"fields": list(body.keys())})
         return {"ok": True, "message": "Configuration saved"}
     except Exception as e:

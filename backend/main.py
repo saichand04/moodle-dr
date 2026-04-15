@@ -59,6 +59,8 @@ def _sync_state_from_file():
         saved = json.loads(p.read_text())
         if not state.AZURE_VM_IP and saved.get("target_ip"):
             state.AZURE_VM_IP = saved["target_ip"]
+        if saved.get("admin_ssh_user"):
+            state.ADMIN_VM_USER = saved["admin_ssh_user"]
         if saved.get("sync_user"):
             state.AZURE_VM_USER = saved["sync_user"]
         if saved.get("ssh_key_path"):
@@ -89,6 +91,14 @@ async def lifespan(app: FastAPI):
 
     # 3. Load setup state from file
     _sync_state_from_file()
+    # Load admin_ssh_user from DB config (highest priority)
+    try:
+        import db_replication_db as _drdb
+        _db_cfg = _drdb.get_raw_db_config() or {}
+        if _db_cfg.get("admin_ssh_user"):
+            state.ADMIN_VM_USER = _db_cfg["admin_ssh_user"]
+    except Exception:
+        pass
 
     # 4. Register rsync trigger callback
     state.trigger_rsync_fn = _trigger_rsync_job

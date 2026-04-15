@@ -839,6 +839,7 @@ function pageSrvDetails() {
         <div class="form-row"><label class="form-label">Replica DB User</label><input id="d-rdbuser" class="input" value="root"/></div>
         <div class="form-row"><label class="form-label">Replica DB Password</label><div class="pw-wrap"><input id="d-rdbpass" class="input" type="password"/><button class="pw-eye" onclick="togglePw('d-rdbpass')">${ICONS.eye}</button></div></div>
         <div class="form-row"><label class="form-label">Moodle DB Name</label><input id="d-dbname" class="input" value="moodle"/></div>
+        <div class="form-row"><label class="form-label">Admin SSH User</label><input id="d-adminuser" class="input" value="admmoodle" placeholder="admmoodle" title="Privileged SSH user on replica for sudo operations (e.g. writing sudoers, creating DB grants)"/></div>
         <div class="form-row"><label class="form-label">Seed Method</label>
           <select id="d-seed" class="select"><option value="mysqldump">mysqldump (recommended)</option><option value="xtrabackup">XtraBackup</option></select>
         </div>
@@ -862,6 +863,7 @@ function initSrvDetails() {
     set('d-ruser',d.repl_user);set('d-sdbuser',d.source_db_user);
     set('d-rdbuser',d.replica_db_user);set('d-dbname',d.moodle_db_name);
     if(d.seed_method){const el=document.getElementById('d-seed');if(el)el.value=d.seed_method;}
+    if(d.admin_ssh_user){const el=document.getElementById('d-adminuser');if(el)el.value=d.admin_ssh_user;}
   });
 }
 
@@ -1966,7 +1968,7 @@ function pageDbSettings() {
       <div class="form-row"><label class="form-label">Replica DB User</label><input id="dbs-rdbuser" class="input"/></div>
       <div class="form-row"><label class="form-label">Replica DB Password</label><div class="pw-wrap"><input id="dbs-rdbpass" class="input" type="password"/><button class="pw-eye" onclick="togglePw('dbs-rdbpass')">${ICONS.eye}</button></div></div>
       <div class="form-row"><label class="form-label">Moodle DB Name</label><input id="dbs-dbname" class="input"/></div>
-      <div class="form-row"><label class="form-label">Seed Method</label><select id="dbs-seed" class="select"><option value="mysqldump">mysqldump</option><option value="xtrabackup">XtraBackup</option></select></div>
+      <div class="form-row"><label class="form-label">Admin SSH User</label><input id="dbs-adminuser" class="input" placeholder="admmoodle" title="Privileged SSH user on replica for sudo operations (e.g. sudoers, GRANT)"/></div><div class="form-row"><label class="form-label">Seed Method</label><select id="dbs-seed" class="select"><option value="mysqldump">mysqldump</option><option value="xtrabackup">XtraBackup</option></select></div>
     </div>
     <div class="flex-row" style="gap:8px;margin-top:16px">
       <button class="btn btn-primary" onclick="saveDbSettings()">Save</button>
@@ -2014,7 +2016,7 @@ function initDbSettings(){
 }
 async function saveDbSettings(){
   const g=id=>{const el=document.getElementById(id);return el?el.value:'';};
-  const body={source_host:g('dbs-shost'),source_port:parseInt(g('dbs-sport'))||3306,replica_host:g('dbs-rhost'),replica_port:parseInt(g('dbs-rport'))||3306,repl_user:g('dbs-ruser'),repl_password:g('dbs-rpass'),source_db_user:g('dbs-sdbuser'),source_db_password:g('dbs-sdbpass'),replica_db_user:g('dbs-rdbuser'),replica_db_password:g('dbs-rdbpass'),moodle_db_name:g('dbs-dbname'),seed_method:g('dbs-seed')};
+  const body={source_host:g('dbs-shost'),source_port:parseInt(g('dbs-sport'))||3306,replica_host:g('dbs-rhost'),replica_port:parseInt(g('dbs-rport'))||3306,repl_user:g('dbs-ruser'),repl_password:g('dbs-rpass'),source_db_user:g('dbs-sdbuser'),source_db_password:g('dbs-sdbpass'),replica_db_user:g('dbs-rdbuser'),replica_db_password:g('dbs-rdbpass'),moodle_db_name:g('dbs-dbname'),admin_ssh_user:g('dbs-adminuser')||'admmoodle',seed_method:g('dbs-seed')};
   const r=await apiPost('/api/db/config',body);showToast(r.ok?'DB settings saved':r.error,r.ok?'ok':'err');
 }
 async function testSourceDb(){

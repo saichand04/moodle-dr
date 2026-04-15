@@ -30,6 +30,7 @@ async def init_db_replication():
         ssl_cert_path   TEXT NOT NULL DEFAULT '/etc/mysql/ssl/client-cert.pem',
         ssl_key_path    TEXT NOT NULL DEFAULT '/etc/mysql/ssl/client-key.pem',
         ssl_remote_dir  TEXT NOT NULL DEFAULT '/var/lib/mysql/ssl',
+        admin_ssh_user  TEXT NOT NULL DEFAULT 'admmoodle',
         seed_method     TEXT NOT NULL DEFAULT 'mysqldump',
         configured_at   TEXT,
         updated_at      TEXT
@@ -73,6 +74,7 @@ async def init_db_replication():
     # ── Schema migrations: safely add columns missing in existing DBs ──────────
     migrations = [
         "ALTER TABLE db_replication_config ADD COLUMN ssl_remote_dir TEXT NOT NULL DEFAULT '/var/lib/mysql/ssl'",
+        "ALTER TABLE db_replication_config ADD COLUMN admin_ssh_user TEXT NOT NULL DEFAULT 'admmoodle'",
     ]
     for sql in migrations:
         try:
@@ -106,7 +108,8 @@ def save_db_config(cfg: dict):
             source_host=?, source_port=?, replica_host=?, replica_port=?,
             repl_user=?, repl_password=?, source_db_user=?, source_db_password=?,
             replica_db_user=?, replica_db_password=?, moodle_db_name=?,
-            ssl_ca_path=?, ssl_cert_path=?, ssl_key_path=?, seed_method=?, updated_at=?
+            ssl_ca_path=?, ssl_cert_path=?, ssl_key_path=?, admin_ssh_user=?,
+            seed_method=?, updated_at=?
             WHERE id=?""",
             (cfg.get("source_host", "127.0.0.1"), cfg.get("source_port", 3306),
              cfg.get("replica_host", ""), cfg.get("replica_port", 3306),
@@ -115,13 +118,15 @@ def save_db_config(cfg: dict):
              cfg.get("replica_db_user", "root"), cfg.get("replica_db_password", ""),
              cfg.get("moodle_db_name", "moodle"), cfg.get("ssl_ca_path", ""),
              cfg.get("ssl_cert_path", ""), cfg.get("ssl_key_path", ""),
+             cfg.get("admin_ssh_user", "admmoodle"),
              cfg.get("seed_method", "mysqldump"), now, existing[0]))
     else:
         conn.execute("""INSERT INTO db_replication_config
             (source_host,source_port,replica_host,replica_port,repl_user,repl_password,
              source_db_user,source_db_password,replica_db_user,replica_db_password,
-             moodle_db_name,ssl_ca_path,ssl_cert_path,ssl_key_path,seed_method,configured_at,updated_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+             moodle_db_name,ssl_ca_path,ssl_cert_path,ssl_key_path,admin_ssh_user,
+             seed_method,configured_at,updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (cfg.get("source_host", "127.0.0.1"), cfg.get("source_port", 3306),
              cfg.get("replica_host", ""), cfg.get("replica_port", 3306),
              cfg.get("repl_user", "repl_user"), cfg.get("repl_password", ""),
@@ -129,6 +134,7 @@ def save_db_config(cfg: dict):
              cfg.get("replica_db_user", "root"), cfg.get("replica_db_password", ""),
              cfg.get("moodle_db_name", "moodle"), cfg.get("ssl_ca_path", ""),
              cfg.get("ssl_cert_path", ""), cfg.get("ssl_key_path", ""),
+             cfg.get("admin_ssh_user", "admmoodle"),
              cfg.get("seed_method", "mysqldump"), now, now))
     conn.commit()
     conn.close()
@@ -208,7 +214,7 @@ def update_db_config_field(field: str, value):
     """Update a single column in the db_replication_config row (best-effort)."""
     allowed = {
         "ssl_ca_path", "ssl_cert_path", "ssl_key_path", "ssl_remote_dir",
-        "source_host", "replica_host", "seed_method"
+        "source_host", "replica_host", "seed_method", "admin_ssh_user"
     }
     if field not in allowed:
         return
