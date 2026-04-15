@@ -237,7 +237,9 @@ SUDOERS_RULE  = (
     "{user} ALL=(root) NOPASSWD: "
     "/bin/mkdir, /bin/cp, /bin/chown, /bin/chmod, "
     "/usr/bin/tee, /bin/systemctl, /usr/sbin/mariadbd, /usr/sbin/mysqld, "
-    "/usr/bin/stat, /usr/bin/ls"
+    "/usr/bin/stat, /usr/bin/ls, "
+    "/usr/bin/mysql, /usr/bin/mariadb"
+    # /usr/bin/mysql + /usr/bin/mariadb required for auto-fix of @'localhost' grant
 )
 
 @router.get("/setup/check-replica-sudoers")
@@ -1087,33 +1089,38 @@ async def _run_seed_job():
             # not @'localhost'. Grant @'localhost' via root (sudo mysql) and retry.
             if "Access denied" in rt_str and "localhost" in rt_str:
                 state.db_seed_job["output"].append(
-                    f"⚠ Replica DB: @'localhost' grant missing — auto-fixing..."
+                    "⚠ Replica DB: @'localhost' grant missing — auto-fixing via sudo..."
                 )
-                # Build GRANT SQL — needs replica creds and DB name
+                # Build GRANT SQL and base64-encode so no shell quoting issues
                 grant_sql = (
                     f"GRANT ALL PRIVILEGES ON *.* TO '{replica_user}'@'localhost' "
                     f"IDENTIFIED BY '{replica_pass}' WITH GRANT OPTION; "
                     f"FLUSH PRIVILEGES;"
                 )
                 grant_b64 = __import__('base64').b64encode(grant_sql.encode()).decode()
+                # Try mariadb first (Ubuntu 24.04), fall back to mysql
+                # sudo runs passwordless — /usr/bin/mariadb and /usr/bin/mysql must
+                # be in the sudoers rule for moodlesync (NOPASSWD)
+                fix_cmd = (
+                    f"echo '{grant_b64}' | base64 -d > /tmp/.mdr_grant.sql && "
+                    f"(sudo mariadb < /tmp/.mdr_grant.sql 2>/dev/null || "
+                    f" sudo mysql   < /tmp/.mdr_grant.sql 2>/dev/null); "
+                    f"EC=$?; rm -f /tmp/.mdr_grant.sql; exit $EC"
+                )
                 fix_proc = await asyncio.create_subprocess_exec(
                     "ssh", "-i", state.SSH_KEY_PATH,
                     "-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes",
-                    f"moodlesync@{replica_host}",
-                    (
-                        f"echo '{grant_b64}' | base64 -d > /tmp/.mdr_grant.sql && "
-                        f"sudo mysql < /tmp/.mdr_grant.sql; "
-                        f"EC=$?; rm -f /tmp/.mdr_grant.sql; exit $EC"
-                    ),
+                    f"moodlesync@{replica_host}", fix_cmd,
                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
                 )
                 _, fix_err = await fix_proc.communicate()
                 if fix_proc.returncode != 0:
                     raise Exception(
                         f"Pre-flight failed: cannot connect to replica DB and "
-                        f"auto-fix grant failed: {fix_err.decode()[:200]}\n"
-                        f"Run manually on replica: GRANT ALL ON *.* TO "
-                        f"'{replica_user}'@'localhost' IDENTIFIED BY '<pass>' WITH GRANT OPTION;"
+                        f"auto-fix grant failed (sudo mariadb/mysql returned non-zero). "
+                        f"Ensure /usr/bin/mariadb and /usr/bin/mysql are in the moodlesync "
+                        f"sudoers NOPASSWD rule on the replica, then retry.\n"
+                        f"Detail: {fix_err.decode()[:200]}"
                     )
                 state.db_seed_job["output"].append("✓ @'localhost' grant created on replica")
             else:
