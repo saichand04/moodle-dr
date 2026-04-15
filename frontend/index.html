@@ -571,19 +571,11 @@ function buildNav() {
   const showDB=dbComplete||mode==='db_only'||mode==='both';
   const showBoth=(mode==='both')&&fileComplete&&dbComplete;
   const groups=[];
-  if(!isSetupComplete){
-    groups.push({group:'Setup',items:[
-      {key:'welcome',label:'Welcome',icon:'home'},
-      {key:'srv_details',label:'Server Details',icon:'server'},
-      {key:'prereqs',label:'Prerequisites',icon:'shield'},
-      {key:'configure',label:'Auto-Configure',icon:'settings'},
-      {key:'bulk_sync',label:'Bulk Sync',icon:'layers'},
-      ...(needsDB?[{key:'start_repl',label:'Start Replication',icon:'git'}]:[]),
-      {key:'verify',label:'Verify',icon:'check'},
-    ]});
-  }
-  // DR Readiness always at top
-  groups.push({group:'DR',items:[{key:'dr_readiness',label:'DR Readiness',icon:'shield'}]});
+  // DR Readiness always at top — default landing page
+  groups.push({group:'DR',items:[
+    {key:'dr_readiness',label:'DR Readiness',icon:'shield'},
+    {key:'welcome',label:'Setup Wizard',icon:'settings'},
+  ]});
   if(showFile){
     groups.push({group:'File Sync',items:[
       {key:'dashboard',label:'File Sync Status',icon:'activity'},
@@ -753,12 +745,12 @@ function toggleSidebar(){
 async function startSetup(mode) {
   await apiPost('/api/setup/mode',{setup_mode:mode,welcome_seen:true});
   appState.setupMode=mode; appState.welcomeSeen=true;
-  transitionToApp('welcome');
+  showPage('srv_details');
 }
 async function skipToApp() {
   await apiPost('/api/setup/mode',{welcome_seen:true});
   appState.welcomeSeen=true;
-  transitionToApp((appState.fileSetupComplete||appState.dbSetupComplete)?'dr_readiness':'welcome');
+  showPage('dr_readiness');
 }
 function transitionToApp(firstPage) {
   const ws=document.getElementById('welcome-screen');
@@ -778,29 +770,45 @@ function togglePw(id){ const el=document.getElementById(id); if(el) el.type=el.t
 // ═══════════════════════════════════════════════════════════════
 function pagePWelcome() {
   const mode=appState.setupMode;
-  const modeLabel={file_only:'File Sync',db_only:'Database Sync',both:'Full DR (File + DB)'}[mode]||'Full DR';
+  const modeLabel={file_only:'File Sync Only',db_only:'Database Sync Only',both:'Full DR (File + DB)'}[mode]||'Not selected';
+  const hasModeSelected = mode==='file_only'||mode==='db_only'||mode==='both';
   return `
-    <div class="page-header"><div class="page-title">Welcome to Moodle DR Setup</div>
-    <div class="page-sub">You selected: <strong style="color:var(--violet)">${modeLabel}</strong></div></div>
-    <div class="banner banner-info"><div class="banner-icon">${ICONS.zap}</div>
-    <div class="banner-text"><div class="banner-title">Setup Mode: ${modeLabel}</div>
-    <div class="banner-body">Follow the wizard steps to configure your Moodle disaster recovery environment.</div></div></div>
-    <div class="panel"><div class="panel-title">${ICONS.layers} What will be configured</div>
-    ${mode!=='db_only'?`<div class="check-list" style="margin-bottom:12px">
-      <div class="check-item"><div class="check-icon">${ICONS.check}</div><div class="check-name">File Sync (rsync + lsyncd) to Azure VM</div></div>
-      <div class="check-item"><div class="check-icon">${ICONS.check}</div><div class="check-name">SSH key authentication setup</div></div>
-      <div class="check-item"><div class="check-icon">${ICONS.check}</div><div class="check-name">lsyncd service configuration and enable</div></div>
-      <div class="check-item"><div class="check-icon">${ICONS.check}</div><div class="check-name">Initial bulk rsync of /moodledata/</div></div>
-    </div>`:''}
-    ${mode!=='file_only'?`<div class="check-list">
-      <div class="check-item"><div class="check-icon">${ICONS.check}</div><div class="check-name">MySQL GTID async replication</div></div>
-      <div class="check-item"><div class="check-icon">${ICONS.check}</div><div class="check-name">SSL certificate generation and deployment</div></div>
-      <div class="check-item"><div class="check-icon">${ICONS.check}</div><div class="check-name">Replication user creation</div></div>
-      <div class="check-item"><div class="check-icon">${ICONS.check}</div><div class="check-name">pt-heartbeat monitoring</div></div>
-    </div>`:''}
+    <div class="page-header">
+      <div class="page-title">${ICONS.settings} Setup Wizard</div>
+      <div class="page-sub">Configure your Moodle Disaster Recovery environment</div>
     </div>
-    <div class="flex-row" style="justify-content:flex-end">
-      <button class="btn btn-primary btn-lg" onclick="showPage('srv_details')">Next: Server Details ${ICONS.arrow}</button>
+    ${hasModeSelected?`
+    <div class="banner banner-info" style="margin-bottom:16px"><div class="banner-icon">${ICONS.zap}</div>
+    <div class="banner-text"><div class="banner-title">Current Mode: ${modeLabel}</div>
+    <div class="banner-body">Continue the wizard or change your setup mode below.</div></div></div>
+    <div class="panel" style="margin-bottom:16px">
+      <div class="flex-row between">
+        <div class="panel-title">${ICONS.layers} Continue Setup</div>
+      </div>
+      <div class="flex-row" style="gap:10px;margin-top:12px">
+        <button class="btn btn-primary" onclick="showPage('srv_details')">Continue Wizard ${ICONS.arrow}</button>
+        <button class="btn btn-ghost" onclick="showPage('dr_readiness')">Go to DR Readiness</button>
+      </div>
+    </div>`:''}
+    <div class="panel">
+      <div class="panel-title">${ICONS.layers} Select Setup Mode</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-top:14px">
+        <div class="card" style="cursor:pointer;border:1px solid ${mode==='file_only'?'var(--cyan)':'var(--border)'};padding:18px" onclick="startSetup('file_only')">
+          <div style="font-size:15px;font-weight:600;color:var(--cyan);margin-bottom:6px">${ICONS.activity} File Sync Only</div>
+          <div style="font-size:12px;color:var(--muted);line-height:1.5">rsync + lsyncd continuous file replication to Azure VM. No database.</div>
+          <div style="margin-top:12px"><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();startSetup('file_only')">Select ${mode==='file_only'?'✓':''}</button></div>
+        </div>
+        <div class="card" style="cursor:pointer;border:1px solid ${mode==='db_only'?'var(--violet)':'var(--border)'};padding:18px" onclick="startSetup('db_only')">
+          <div style="font-size:15px;font-weight:600;color:var(--violet);margin-bottom:6px">${ICONS.database} DB Sync Only</div>
+          <div style="font-size:12px;color:var(--muted);line-height:1.5">MySQL GTID async replication with SSL. No file sync.</div>
+          <div style="margin-top:12px"><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();startSetup('db_only')">Select ${mode==='db_only'?'✓':''}</button></div>
+        </div>
+        <div class="card" style="cursor:pointer;border:1px solid ${mode==='both'?'var(--green)':'var(--border)'};padding:18px" onclick="startSetup('both')">
+          <div style="font-size:15px;font-weight:600;color:var(--green,#4ade80);margin-bottom:6px">${ICONS.shield} Full DR Setup</div>
+          <div style="font-size:12px;color:var(--muted);line-height:1.5">Complete disaster recovery — file sync + database replication + unified DR dashboard.</div>
+          <div style="margin-top:12px"><button class="btn btn-primary btn-sm" onclick="event.stopPropagation();startSetup('both')">Select ${mode==='both'?'✓':''}</button></div>
+        </div>
+      </div>
     </div>`;
 }
 
@@ -2987,16 +2995,13 @@ async function initApp() {
     appState.dbSetupComplete=r.db_setup_complete||false;
   } catch(e){}
 
-  if(appState.welcomeSeen||(appState.fileSetupComplete||appState.dbSetupComplete)){
-    document.getElementById('welcome-screen').style.display='none';
-    document.getElementById('appShell').style.display='flex';
-    const firstPage=(appState.fileSetupComplete||appState.dbSetupComplete)?'dr_readiness':'welcome';
-    showPage(firstPage);
-    startClock();
-    startTopbarPolling();
-  } else {
-    // Show welcome screen
-  }
+  // Always go straight to app — DR Readiness is the default landing page.
+  // Setup Wizard is accessible from the sidebar at any time.
+  document.getElementById('welcome-screen').style.display='none';
+  document.getElementById('appShell').style.display='flex';
+  showPage('dr_readiness');
+  startClock();
+  startTopbarPolling();
 }
 
 document.addEventListener('DOMContentLoaded', initApp);

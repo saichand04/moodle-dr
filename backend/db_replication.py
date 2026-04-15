@@ -1070,7 +1070,9 @@ async def _run_seed_job():
             raise Exception(f"Pre-flight failed: could not write .my.cnf on replica: {wcnf_err.decode()[:200]}")
         state.db_seed_job["output"].append("✓ Credentials file written on replica (.moodle_dr_my.cnf)")
 
-        # Test replica DB connection using the safe .my.cnf
+        # Test replica DB connection using the safe .my.cnf (TCP via 127.0.0.1)
+        # .my.cnf contains host=127.0.0.1 so mysql uses TCP not Unix socket.
+        # @'%' grants cover TCP; socket connections map to @'localhost'.
         replica_test = await asyncio.create_subprocess_exec(
             "ssh", "-i", state.SSH_KEY_PATH,
             "-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes",
@@ -1081,7 +1083,41 @@ async def _run_seed_job():
         rt_out, _ = await replica_test.communicate()
         rt_str = rt_out.decode(errors='replace')
         if "exit:0" not in rt_str:
-            raise Exception(f"Pre-flight failed: cannot connect to replica DB: {rt_str[:300]}")
+            # Auto-fix: if Access denied @'localhost', the user exists with @'%' but
+            # not @'localhost'. Grant @'localhost' via root (sudo mysql) and retry.
+            if "Access denied" in rt_str and "localhost" in rt_str:
+                state.db_seed_job["output"].append(
+                    f"⚠ Replica DB: @'localhost' grant missing — auto-fixing..."
+                )
+                # Build GRANT SQL — needs replica creds and DB name
+                grant_sql = (
+                    f"GRANT ALL PRIVILEGES ON *.* TO '{replica_user}'@'localhost' "
+                    f"IDENTIFIED BY '{replica_pass}' WITH GRANT OPTION; "
+                    f"FLUSH PRIVILEGES;"
+                )
+                grant_b64 = __import__('base64').b64encode(grant_sql.encode()).decode()
+                fix_proc = await asyncio.create_subprocess_exec(
+                    "ssh", "-i", state.SSH_KEY_PATH,
+                    "-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes",
+                    f"moodlesync@{replica_host}",
+                    (
+                        f"echo '{grant_b64}' | base64 -d > /tmp/.mdr_grant.sql && "
+                        f"sudo mysql < /tmp/.mdr_grant.sql; "
+                        f"EC=$?; rm -f /tmp/.mdr_grant.sql; exit $EC"
+                    ),
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+                )
+                _, fix_err = await fix_proc.communicate()
+                if fix_proc.returncode != 0:
+                    raise Exception(
+                        f"Pre-flight failed: cannot connect to replica DB and "
+                        f"auto-fix grant failed: {fix_err.decode()[:200]}\n"
+                        f"Run manually on replica: GRANT ALL ON *.* TO "
+                        f"'{replica_user}'@'localhost' IDENTIFIED BY '<pass>' WITH GRANT OPTION;"
+                    )
+                state.db_seed_job["output"].append("✓ @'localhost' grant created on replica")
+            else:
+                raise Exception(f"Pre-flight failed: cannot connect to replica DB: {rt_str[:300]}")
         state.db_seed_job["output"].append(f"✓ Replica DB connection OK ({replica_host})")
 
         # ── Check if a previous dump already landed on the replica ────────────
