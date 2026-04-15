@@ -1019,12 +1019,12 @@ async def _run_seed_job():
         if not source_pass:
             raise Exception("Pre-flight failed: source_db_password not configured")
 
-        # Test source DB connection
+        # Test source DB connection (using mysql.connector — always installed)
         try:
-            import pymysql as _pm
-            _sc = _pm.connect(host=source_host, port=int(cfg.get("source_port") or 3306),
+            import mysql.connector as _mc
+            _sc = _mc.connect(host=source_host, port=int(cfg.get("source_port") or 3306),
                               user=source_user, password=source_pass,
-                              db=db_name, connect_timeout=10)
+                              database=db_name, connect_timeout=10)
             _sc.close()
             state.db_seed_job["output"].append(f"✓ Source DB connection OK ({source_host})")
         except Exception as e:
@@ -1149,8 +1149,8 @@ async def _seed_mysqldump(cfg: dict, db_name: str, skip_dump: bool = False):
             src_is_mariadb = "mariadb" in (cfg.get("source_db_version") or "").lower()
             if not src_is_mariadb:
                 try:
-                    import pymysql as _pym
-                    _c = _pym.connect(host=source_host, port=int(source_port),
+                    import mysql.connector as _mc2
+                    _c = _mc2.connect(host=source_host, port=int(source_port),
                                       user=source_user, password=source_pass, connect_timeout=5)
                     _v = _c.get_server_info().lower()
                     _c.close()
