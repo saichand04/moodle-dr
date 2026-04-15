@@ -1065,65 +1065,141 @@ async def _seed_mysqldump(cfg: dict, db_name: str):
             db_name,
         ]
 
+    # ── Stream mysqldump → disk (never buffer in RAM — OOM kills uvicorn) ────────────
+    dump_file = Path(dump_path.replace(".gz", ""))
     try:
-        proc = await asyncio.create_subprocess_exec(
+        state.db_seed_job["output"].append(f"Streaming mysqldump to {dump_file} ...")
+        dump_proc = await asyncio.create_subprocess_exec(
             *dump_cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await proc.communicate()
+        # Write stdout to disk in chunks — never load full dump into RAM
+        import aiofiles
+        async with aiofiles.open(str(dump_file), 'wb') as f:
+            while True:
+                chunk = await dump_proc.stdout.read(1024 * 1024)  # 1 MB chunks
+                if not chunk:
+                    break
+                await f.write(chunk)
+                # Update size estimate while streaming
+                try:
+                    sz = dump_file.stat().st_size
+                    state.db_seed_job["dump_size_human"] = f"{sz/1024/1024:.0f} MB"
+                except Exception:
+                    pass
 
-        if proc.returncode != 0:
-            raise Exception(f"mysqldump failed: {stderr.decode()[:500]}")
-
-        # Write dump
-        dump_file = Path(dump_path.replace(".gz", ""))
-        dump_file.write_bytes(stdout)
+        _, stderr_bytes = await dump_proc.communicate()
+        if dump_proc.returncode != 0:
+            raise Exception(f"mysqldump failed: {stderr_bytes.decode(errors='replace')[:500]}")
 
         size = dump_file.stat().st_size
-        state.db_seed_job["dump_size_human"] = f"{size/1024/1024:.1f} MB"
-        state.db_seed_job["progress"] = 50
+        size_human = f"{size/1024/1024:.1f} MB" if size < 1024**3 else f"{size/1024/1024/1024:.2f} GB"
+        state.db_seed_job["dump_size_human"] = size_human
+        state.db_seed_job["progress"] = 40
         state.db_seed_job["phase"] = "transferring"
-        state.db_seed_job["output"].append(f"Dump complete: {state.db_seed_job['dump_size_human']}")
+        state.db_seed_job["output"].append(f"Dump complete: {size_human} — transferring to replica...")
 
-        # SCP to replica
+        # ── SCP dump file to replica ──────────────────────────────────────────────
         scp_cmd = [
-            "scp", "-i", state.SSH_KEY_PATH,
+            "scp",
+            "-i", state.SSH_KEY_PATH,
             "-o", "StrictHostKeyChecking=accept-new",
-            str(dump_file), f"{state.AZURE_VM_USER}@{replica_host}:/tmp/moodle_seed.sql"
+            "-o", "BatchMode=yes",
+            "-o", "ConnectTimeout=30",
+            str(dump_file),
+            f"moodlesync@{replica_host}:/tmp/moodle_seed.sql"
         ]
-        r = await asyncio.create_subprocess_exec(*scp_cmd,
+        scp_proc = await asyncio.create_subprocess_exec(*scp_cmd,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-        _, err2 = await r.communicate()
-        if r.returncode != 0:
-            raise Exception(f"SCP failed: {err2.decode()[:300]}")
+        _, scp_err = await scp_proc.communicate()
+        if scp_proc.returncode != 0:
+            raise Exception(f"SCP failed: {scp_err.decode(errors='replace')[:300]}")
 
-        state.db_seed_job["progress"] = 70
+        state.db_seed_job["progress"] = 65
         state.db_seed_job["phase"] = "importing"
-        state.db_seed_job["output"].append("Importing dump on replica...")
+        state.db_seed_job["output"].append("Importing dump on replica (this may take a while)...")
 
-        # Import on replica
-        import_cmd = _ssh_cmd(replica_host)
-        import_cmd.append(f"mysql -u{replica_user} -p{replica_pass} {db_name} < /tmp/moodle_seed.sql && rm /tmp/moodle_seed.sql")
-        r2 = await asyncio.create_subprocess_exec(*import_cmd,
+        # ── Import on replica via SSH ─────────────────────────────────────────
+        # Create DB first if it doesn't exist
+        create_db_cmd = [
+            "ssh", "-i", state.SSH_KEY_PATH,
+            "-o", "StrictHostKeyChecking=accept-new",
+            "-o", "BatchMode=yes",
+            "-o", "ConnectTimeout=30",
+            f"moodlesync@{replica_host}",
+            f"mysql -u{replica_user} -p{replica_pass} -e 'CREATE DATABASE IF NOT EXISTS `{db_name}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;'"
+        ]
+        cdb = await asyncio.create_subprocess_exec(*create_db_cmd,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-        _, err3 = await r2.communicate()
-        if r2.returncode != 0:
-            raise Exception(f"Import failed: {err3.decode()[:300]}")
+        await cdb.communicate()
+
+        # Run import
+        import_cmd = [
+            "ssh", "-i", state.SSH_KEY_PATH,
+            "-o", "StrictHostKeyChecking=accept-new",
+            "-o", "BatchMode=yes",
+            "-o", "ConnectTimeout=30",
+            f"moodlesync@{replica_host}",
+            f"mysql -u{replica_user} -p'{replica_pass}' {db_name} < /tmp/moodle_seed.sql && rm -f /tmp/moodle_seed.sql"
+        ]
+        imp_proc = await asyncio.create_subprocess_exec(*import_cmd,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        _, imp_err = await imp_proc.communicate()
+        if imp_proc.returncode != 0:
+            raise Exception(f"Import failed: {imp_err.decode(errors='replace')[:400]}")
+
+        state.db_seed_job["progress"] = 90
+        state.db_seed_job["phase"] = "configuring"
+        state.db_seed_job["output"].append("Import complete — configuring replication...")
+
+        # ── Run CHANGE MASTER TO ──────────────────────────────────────────────
+        repl_cfg = db_db.get_raw_db_config()
+        repl_user_name  = (repl_cfg.get("repl_user") or "moodledbsync")
+        repl_user_pass  = (repl_cfg.get("repl_password") or "")
+        source_host_val = (repl_cfg.get("source_host") or "127.0.0.1")
+        source_port_val = int(repl_cfg.get("source_port") or 3306)
+
+        change_master_sql = (
+            f"STOP SLAVE; RESET SLAVE ALL; "
+            f"CHANGE MASTER TO "
+            f"MASTER_HOST='{source_host_val}', "
+            f"MASTER_PORT={source_port_val}, "
+            f"MASTER_USER='{repl_user_name}', "
+            f"MASTER_PASSWORD='{repl_user_pass}', "
+            f"MASTER_USE_GTID=slave_pos, "
+            f"MASTER_SSL=1, "
+            f"MASTER_SSL_CA='/var/lib/mysql/ssl/ca-cert.pem', "
+            f"MASTER_SSL_CERT='/var/lib/mysql/ssl/client-cert.pem', "
+            f"MASTER_SSL_KEY='/var/lib/mysql/ssl/client-key.pem'; "
+            f"START SLAVE;"
+        )
+        cm_cmd = [
+            "ssh", "-i", state.SSH_KEY_PATH,
+            "-o", "StrictHostKeyChecking=accept-new",
+            "-o", "BatchMode=yes",
+            f"moodlesync@{replica_host}",
+            f"mysql -u{replica_user} -p'{replica_pass}' -e \"{change_master_sql}\""
+        ]
+        cm_proc = await asyncio.create_subprocess_exec(*cm_cmd,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        _, cm_err = await cm_proc.communicate()
+        if cm_proc.returncode != 0:
+            state.db_seed_job["output"].append(f"WARN: CHANGE MASTER TO: {cm_err.decode(errors='replace')[:200]}")
+        else:
+            state.db_seed_job["output"].append("Replication configured and started.")
 
         state.db_seed_job["progress"] = 100
-        state.db_seed_job["phase"] = "complete"
+        state.db_seed_job["phase"] = "done"
         state.db_seed_job["running"] = False
-        state.db_seed_job["result"] = "success"
+        state.db_seed_job["result"] = "ok"
         state.db_seed_job["ended_at"] = datetime.utcnow().isoformat()
-        state.db_seed_job["output"].append("Seed complete!")
-
-        # Cleanup
+        state.db_seed_job["output"].append("✓ Seed complete! Go to DB Replication Status and verify IO/SQL threads.")
         dump_file.unlink(missing_ok=True)
-
-        db_db.log_audit("seed_database", result="ok", details={"method": "mysqldump", "db": db_name})
+        db_db.log_audit("seed_database", result="ok", details={"method": "mysqldump", "db": db_name, "size": size_human})
 
     except Exception as e:
+        dump_file.unlink(missing_ok=True)
         state.db_seed_job.update({
             "running": False, "result": "error", "error": str(e),
             "ended_at": datetime.utcnow().isoformat(),
