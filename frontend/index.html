@@ -1676,6 +1676,16 @@ function pageDbReplication() {
         <div id="ctrlOutput" style="margin-top:12px"></div>
       </div>
     </div>
+    <div class="panel" id="seedPanel">
+      <div class="flex-row between" style="margin-bottom:12px">
+        <div class="panel-title">${ICONS.database} Initial Seed Status</div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-primary btn-sm" onclick="triggerSeedStart()">Seed Start</button>
+          <button class="btn btn-ghost btn-sm" onclick="loadSeedStatus()">${ICONS.refresh}</button>
+        </div>
+      </div>
+      <div id="seedStatusContent"><div class="empty-state">Loading seed status...</div></div>
+    </div>
     <div class="panel"><div class="panel-title">${ICONS.activity} Lag History (24h)</div>
       <div class="chart-wrap"><canvas id="lagChart"></canvas></div>
     </div>
@@ -1687,7 +1697,7 @@ function pageDbReplication() {
       <div class="tbl-wrap" id="dbEventsTable"><div class="empty-state">Loading...</div></div>
     </div>`;
 }
-function initDbReplication(){ loadDbHealth(); loadDbHistory(); loadDbEvents(); pollTimers['dbHealth']=setInterval(loadDbHealth,15000); }
+function initDbReplication(){ loadDbHealth(); loadDbHistory(); loadDbEvents(); loadSeedStatus(); pollTimers['dbHealth']=setInterval(loadDbHealth,15000); pollTimers['seedStatus']=setInterval(()=>{const s=window._seedRunning;if(s)loadSeedStatus();},3000); }
 async function loadDbHealth(){
   const r=await apiGet('/api/db/health'); if(!r) return;
   const s=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
@@ -1745,6 +1755,51 @@ async function increaseWorkers(){
   const n=prompt('Number of parallel workers:','8');if(!n)return;
   const r=await apiPost('/api/db/recovery/increase-workers',{workers:parseInt(n)});
   showToast(r.ok?r.message:r.error,r.ok?'ok':'err');
+}
+
+async function loadSeedStatus(){
+  const r=await apiGet('/api/db/seed/status'); if(!r) return;
+  window._seedRunning = r.running;
+  const el=document.getElementById('seedStatusContent'); if(!el) return;
+  const phaseColor={'dumping':'cyan','transferring':'cyan','importing':'amber','configuring':'violet','done':'green','error':'red'};
+  const col=phaseColor[r.phase]||'muted';
+  const pct=r.progress||0;
+  const phases=['dumping','transferring','importing','configuring','done'];
+  const phaseHTML=phases.map(p=>{
+    const active=r.phase===p; const done=phases.indexOf(p)<phases.indexOf(r.phase)||(r.result==='ok');
+    return `<div style="display:flex;align-items:center;gap:6px;padding:4px 0">
+      <span style="width:16px;height:16px;border-radius:50%;background:${done?'var(--green)':active?'var(--cyan)':'var(--bg3)'};display:flex;align-items:center;justify-content:center;font-size:9px">${done?'✓':active?'▶':''}</span>
+      <span style="font-size:12px;color:${active?'var(--cyan)':done?'var(--green)':'var(--muted)'}">${p}</span>
+    </div>`;
+  }).join('');
+  const output=(r.output||[]).slice(-8).map(l=>`<div style="font-size:11px;color:var(--muted);font-family:var(--mono)">${escHtml(l)}</div>`).join('');
+  el.innerHTML=`
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+      <div>
+        <div class="kv-row"><span class="kv-key">Status</span><span class="kv-val"><span class="badge badge-${r.running?'green':r.result==='ok'?'green':r.result==='error'?'red':'amber'}">${r.running?'Running':r.result||'idle'}</span></span></div>
+        <div class="kv-row"><span class="kv-key">Phase</span><span class="kv-val" style="color:var(--${col})">${r.phase||'—'}</span></div>
+        <div class="kv-row"><span class="kv-key">Progress</span><span class="kv-val">${pct}%</span></div>
+        ${r.dump_size_human?`<div class="kv-row"><span class="kv-key">Dump size</span><span class="kv-val">${escHtml(r.dump_size_human)}</span></div>`:''}
+        ${r.started_at?`<div class="kv-row"><span class="kv-key">Started</span><span class="kv-val" style="font-size:11px">${timeAgo(r.started_at)}</span></div>`:''}
+        ${r.ended_at?`<div class="kv-row"><span class="kv-key">Ended</span><span class="kv-val" style="font-size:11px">${timeAgo(r.ended_at)}</span></div>`:''}
+      </div>
+      <div>${phaseHTML}</div>
+    </div>
+    <div style="background:var(--bg);border-radius:6px;overflow:hidden;margin-bottom:12px">
+      <div style="height:8px;background:var(--bg2);border-radius:6px">
+        <div style="height:8px;width:${pct}%;background:var(--${r.result==='error'?'red':col});border-radius:6px;transition:width 0.5s"></div>
+      </div>
+    </div>
+    ${r.error?`<div class="banner banner-err" style="margin-bottom:12px"><div class="banner-icon">${ICONS.alert}</div><div class="banner-text"><div class="banner-title">Error</div><div class="banner-body" style="font-family:var(--mono);font-size:11px">${escHtml(r.error)}</div></div></div>`:''}
+    ${r.result==='ok'?`<div class="banner banner-ok" style="margin-bottom:12px"><div class="banner-icon">${ICONS.check}</div><div class="banner-text"><div class="banner-title">Seed Complete</div><div class="banner-body">Initial database seeding finished successfully. Click Start Replica above to begin replication.</div></div></div>`:''}
+    <div style="background:var(--bg1);border-radius:6px;padding:10px;max-height:120px;overflow-y:auto">${output||'<div style="font-size:11px;color:var(--muted)">No output yet</div>'}</div>`;
+}
+function goSeedStart(){ navigate('db_replication'); setTimeout(triggerSeedStart, 300); }
+async function triggerSeedStart(){
+  if(!confirm('Start initial database seed? This will overwrite all data on the replica.')) return;
+  const r=await apiPost('/api/db/seed/start',{});
+  showToast(r.ok?'Seed started!':r.error||'Failed',r.ok?'ok':'err');
+  if(r.ok){ window._seedRunning=true; setTimeout(loadSeedStatus,1000); }
 }
 
 function pageDbIntegrity() {
@@ -1904,6 +1959,8 @@ function pageDbSettings() {
       <button class="btn btn-ghost btn-sm adv-step-btn" id="stepBtn-configure-source" onclick="runStep('configure-source',this)">Configure Source</button>
       <span class="step-arrow" id="arrow-3">&#8250;</span>
       <button class="btn btn-ghost btn-sm adv-step-btn" id="stepBtn-configure-replica" onclick="runStep('configure-replica',this)">Configure Replica</button>
+      <span style="color:var(--muted);padding:0 6px;align-self:center">›</span>
+      <button class="btn btn-primary btn-sm" onclick="goSeedStart()" title="Initial mysqldump from source to replica">⚡ Seed Start</button>
     </div>
     <div id="sudoers-notice" style="display:none;margin:6px 0 0;padding:8px 12px;border-radius:6px;border:1px solid var(--yellow,#fbbf24);background:rgba(251,191,36,.08);font-size:12px;color:var(--yellow,#fbbf24);line-height:1.6"></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
