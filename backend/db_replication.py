@@ -1027,15 +1027,43 @@ async def _seed_mysqldump(cfg: dict, db_name: str):
     state.db_seed_job["progress"] = 10
     state.db_seed_job["output"].append(f"Starting mysqldump of {db_name}...")
 
-    dump_cmd = [
-        "mysqldump",
-        f"-h{source_host}", f"-P{str(source_port)}",
-        f"-u{source_user}", f"-p{source_pass}",
-        "--single-transaction", "--master-data=2",
-        "--set-gtid-purged=ON", "--gtid",
-        "--routines", "--triggers", "--events",
-        db_name,
-    ]
+    # Detect source DB type to build correct dump flags
+    # --set-gtid-purged and --gtid are MySQL-only; MariaDB uses --master-data
+    # MariaDB mysqldump exits immediately if unknown flags are passed
+    src_is_mariadb = "mariadb" in (cfg.get("source_db_version") or "").lower()
+    if not src_is_mariadb:
+        # detect dynamically
+        try:
+            import pymysql as _pym
+            _c = _pym.connect(host=source_host, port=int(source_port),
+                              user=source_user, password=source_pass, connect_timeout=5)
+            _v = _c.get_server_info().lower()
+            _c.close()
+            src_is_mariadb = "mariadb" in _v
+        except Exception:
+            src_is_mariadb = True  # default to MariaDB-safe flags
+
+    if src_is_mariadb:
+        # MariaDB-safe flags: no --set-gtid-purged, no --gtid
+        dump_cmd = [
+            "mysqldump",
+            f"-h{source_host}", f"-P{str(source_port)}",
+            f"-u{source_user}", f"-p{source_pass}",
+            "--single-transaction", "--master-data=2",
+            "--routines", "--triggers", "--events",
+            db_name,
+        ]
+    else:
+        # MySQL 8.x flags
+        dump_cmd = [
+            "mysqldump",
+            f"-h{source_host}", f"-P{str(source_port)}",
+            f"-u{source_user}", f"-p{source_pass}",
+            "--single-transaction", "--master-data=2",
+            "--set-gtid-purged=ON", "--gtid",
+            "--routines", "--triggers", "--events",
+            db_name,
+        ]
 
     try:
         proc = await asyncio.create_subprocess_exec(
