@@ -83,6 +83,7 @@ db_seed_job: dict = {
     "output": [],
     "dump_size_human": "",
     "gtid_purged": "",
+    "import_progress": "",  # real-time import stats (pv % or elapsed time)
 }
 
 # ── DB watchdog ───────────────────────────────────────────────────────────────

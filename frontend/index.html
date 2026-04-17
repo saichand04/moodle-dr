@@ -1030,7 +1030,7 @@ async function pollDbSeedStatus(){
   const p=document.getElementById('dbProg');
   if(p){p.style.width=(r.progress||0)+'%';p.className=`prog-fill violet ${r.running?'active':''}`;}
   const logEl=document.getElementById('dbLog');
-  if(logEl){logEl.innerHTML=(r.output||[]).slice(-20).map(l=>`<div class="log-line">${escHtml(l)}</div>`).join('');logEl.scrollTop=logEl.scrollHeight;}
+  if(logEl){logEl.innerHTML=(r.output||[]).slice(-20).reverse().map(l=>`<div class="log-line">${escHtml(l)}</div>`).join('');logEl.scrollTop=0;}
   const btn=document.getElementById('dbSeedBtn');if(btn) btn.disabled=r.running;
   if(r.result==='success'){const b=document.getElementById('bulkNext');if(b)b.disabled=false;}
 }
@@ -1709,7 +1709,7 @@ function pageDbReplication() {
       <div class="tbl-wrap" id="dbEventsTable"><div class="empty-state">Loading...</div></div>
     </div>`;
 }
-function initDbReplication(){ loadDbHealth(); loadDbHistory(); loadDbEvents(); loadSeedStatus(); pollTimers['dbHealth']=setInterval(loadDbHealth,15000); pollTimers['seedStatus']=setInterval(()=>{const s=window._seedRunning;if(s)loadSeedStatus();},3000); }
+function initDbReplication(){ loadDbHealth(); loadDbHistory(); loadDbEvents(); loadSeedStatus(); pollTimers['dbHealth']=setInterval(loadDbHealth,15000); pollTimers['seedStatus']=setInterval(loadSeedStatus,3000); }
 async function loadDbHealth(){
   const r=await apiGet('/api/db/health'); if(!r) return;
   const s=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
@@ -1804,13 +1804,22 @@ async function loadSeedStatus(){
       <span style="font-size:10px;color:${txtClr};text-align:center;white-space:nowrap">${phaseLabel[p]||p}</span>
     </div>${i<phases.length-1?`<div style="flex:0 0 20px;height:2px;background:${done||active?'var(--cyan)':'var(--bg3)'};margin-top:14px;align-self:flex-start"></div>`:''}`;
   }).join('');
-  const output=(r.output||[]).slice(-10).map(l=>`<div style="font-size:11px;color:var(--muted);font-family:var(--mono);padding:2px 0;border-bottom:1px solid var(--bg3)">${escHtml(l)}</div>`).join('');
+  const output=(r.output||[]).slice(-15).reverse().map(l=>`<div style="font-size:11px;color:var(--muted);font-family:var(--mono);padding:2px 0;border-bottom:1px solid var(--bg3)">${escHtml(l)}</div>`).join('');
+  // Compute elapsed time
+  let elapsedStr='';
+  if(r.started_at&&r.running){
+    const elapsed=Math.floor((Date.now()-new Date(r.started_at+'Z').getTime())/1000);
+    const h=Math.floor(elapsed/3600),m=Math.floor(elapsed%3600/60),s=elapsed%60;
+    elapsedStr=h>0?`${h}h ${m}m ${s}s`:`${m}m ${s}s`;
+  }
+  const importInfo=r.import_progress||'';
   el.innerHTML=`
     <div class="kv-row"><span class="kv-key">Status</span><span class="kv-val">${statusBadge}</span></div>
     <div class="kv-row"><span class="kv-key">Phase</span><span class="kv-val" style="color:var(--${col});text-transform:capitalize">${r.phase||'—'}</span></div>
     <div class="kv-row"><span class="kv-key">Progress</span><span class="kv-val cyan">${pct}%</span></div>
     ${r.dump_size_human?`<div class="kv-row"><span class="kv-key">Dump size</span><span class="kv-val">${escHtml(r.dump_size_human)}</span></div>`:''}
     ${r.started_at?`<div class="kv-row"><span class="kv-key">Started</span><span class="kv-val" style="font-size:11px">${fmtTime(r.started_at)}</span></div>`:''}
+    ${elapsedStr?`<div class="kv-row"><span class="kv-key">Elapsed</span><span class="kv-val cyan" style="font-size:12px;font-family:var(--mono)">${elapsedStr}</span></div>`:''}
     ${r.ended_at?`<div class="kv-row"><span class="kv-key">Ended</span><span class="kv-val" style="font-size:11px">${fmtTime(r.ended_at)}</span></div>`:''}
 
     <div style="margin:12px 0 8px">
@@ -1821,6 +1830,9 @@ async function loadSeedStatus(){
 
     <div style="display:flex;justify-content:center;gap:0;padding:12px 0 8px">${phaseSteps}</div>
 
+    ${importInfo?`<div style="background:var(--bg2);border-radius:6px;padding:8px 12px;margin:4px 0 8px;border:1px solid var(--cyan)33">
+      <div style="font-size:11px;color:var(--cyan);font-family:var(--mono)">${escHtml(importInfo)}</div>
+    </div>`:''}
     ${r.error?`<div class="banner banner-err" style="margin:8px 0"><div class="banner-icon">${ICONS.alert}</div><div class="banner-text"><div class="banner-title">Error</div><div class="banner-body" style="font-family:var(--mono);font-size:11px;white-space:pre-wrap">${escHtml(r.error)}</div></div></div>`:''}
     ${r.result==='ok'?`<div class="banner banner-ok" style="margin:8px 0"><div class="banner-icon">${ICONS.check}</div><div class="banner-text"><div class="banner-title">Seed Complete</div><div class="banner-body">Click <strong>Start Replica</strong> to begin live replication.</div></div></div>`:''}
     <div style="background:var(--bg1);border-radius:6px;padding:8px;max-height:130px;overflow-y:auto;border:1px solid var(--bg3);margin-top:4px">${output||'<div style="font-size:11px;color:var(--muted)">No output yet</div>'}</div>`;

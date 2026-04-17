@@ -1326,22 +1326,100 @@ async def _seed_mysqldump(cfg: dict, db_name: str, skip_dump: bool = False):
         # Run import — use --defaults-file, pipe SQL in via a sub-shell
         # The pipeline runs entirely inside the SSH remote shell, so mysql reads
         # from stdin (/tmp/moodle_seed.sql). No password on the command line.
+        # Use pv if available for byte-level progress, else plain import.
         import_cmd = [
             "ssh", "-i", state.SSH_KEY_PATH,
             "-o", "StrictHostKeyChecking=accept-new",
             "-o", "BatchMode=yes",
             "-o", "ConnectTimeout=30",
+            "-o", "ServerAliveInterval=60",
             f"moodlesync@{replica_host}",
-            f"mysql --defaults-file=~/.moodle_dr_my.cnf {db_name} < {REPLICA_DUMP} && rm -f {REPLICA_DUMP}"
+            # Use pv for byte-level progress if available, else plain import.
+            # Import runs inside remote shell — mysql reads dump from pv/stdin.
+            f"if command -v pv >/dev/null 2>&1; then "
+            f"  pv -f -n {REPLICA_DUMP} 2>/tmp/.mdr_import_pct | "
+            f"  mysql --defaults-file=~/.moodle_dr_my.cnf {db_name}; "
+            f"else "
+            f"  mysql --defaults-file=~/.moodle_dr_my.cnf {db_name} < {REPLICA_DUMP}; "
+            f"fi; EC=$?; rm -f {REPLICA_DUMP}; exit $EC"
         ]
         imp_proc = await asyncio.create_subprocess_exec(*import_cmd,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+
+        # ── Background monitor: poll import progress every 10s ────────────────
+        import_start = datetime.utcnow()
+        dump_size_str = state.db_seed_job.get("dump_size_human", "")
+
+        async def _monitor_import():
+            """Poll replica for import progress while imp_proc is running."""
+            while imp_proc.returncode is None:
+                await asyncio.sleep(10)
+                if imp_proc.returncode is not None:
+                    break
+                try:
+                    # Try reading pv progress percentage
+                    pv_cmd = [
+                        "ssh", "-i", state.SSH_KEY_PATH,
+                        "-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
+                        f"moodlesync@{replica_host}",
+                        "tail -1 /tmp/.mdr_import_pct 2>/dev/null || echo -1"
+                    ]
+                    pv_proc = await asyncio.create_subprocess_exec(*pv_cmd,
+                        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+                    pv_out, _ = await asyncio.wait_for(pv_proc.communicate(), timeout=12)
+                    pv_str = pv_out.decode(errors='replace').strip().split('\n')[-1]
+                    pv_pct = int(pv_str) if pv_str.lstrip('-').isdigit() else -1
+
+                    elapsed = (datetime.utcnow() - import_start).total_seconds()
+                    elapsed_str = f"{int(elapsed//3600)}h {int(elapsed%3600//60)}m {int(elapsed%60)}s" if elapsed >= 3600 else f"{int(elapsed//60)}m {int(elapsed%60)}s"
+
+                    if pv_pct >= 0:
+                        # pv is available — we have exact byte progress
+                        state.db_seed_job["progress"] = 65 + int(pv_pct * 0.25)  # 65-90 range
+                        eta_str = ""
+                        if pv_pct > 2 and elapsed > 30:
+                            eta_secs = elapsed / pv_pct * (100 - pv_pct)
+                            eta_str = f" — ETA: {int(eta_secs//3600)}h {int(eta_secs%3600//60)}m" if eta_secs >= 3600 else f" — ETA: {int(eta_secs//60)}m {int(eta_secs%60)}s"
+                        state.db_seed_job["import_progress"] = f"{pv_pct}% of {dump_size_str} imported ({elapsed_str} elapsed{eta_str})"
+                    else:
+                        # No pv — just show elapsed time and check processlist
+                        pl_cmd = [
+                            "ssh", "-i", state.SSH_KEY_PATH,
+                            "-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
+                            f"moodlesync@{replica_host}",
+                            "mysql --defaults-file=~/.moodle_dr_my.cnf -e "
+                            "\"SHOW PROCESSLIST\\G\" 2>/dev/null | grep -A2 'Command: Query' | head -6"
+                        ]
+                        pl_proc = await asyncio.create_subprocess_exec(*pl_cmd,
+                            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+                        pl_out, _ = await asyncio.wait_for(pl_proc.communicate(), timeout=12)
+                        pl_str = pl_out.decode(errors='replace').strip()
+                        active_query = pl_str.split('\n')[0][:80] if pl_str else "importing..."
+                        state.db_seed_job["import_progress"] = f"Importing {dump_size_str} ({elapsed_str} elapsed) — {active_query}"
+                except Exception:
+                    pass  # monitor is best-effort, don't crash seed job
+
+        monitor_task = asyncio.create_task(_monitor_import())
+
         _, imp_err = await imp_proc.communicate()
+        monitor_task.cancel()  # stop monitor once import finishes
+
+        # Clean up pv progress file
+        try:
+            cleanup = await asyncio.create_subprocess_exec(
+                "ssh", "-i", state.SSH_KEY_PATH, "-o", "BatchMode=yes",
+                f"moodlesync@{replica_host}", "rm -f /tmp/.mdr_import_pct",
+                stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL)
+            await cleanup.communicate()
+        except Exception:
+            pass
+
         if imp_proc.returncode != 0:
             raise Exception(f"Import failed: {imp_err.decode(errors='replace')[:400]}")
 
         state.db_seed_job["progress"] = 90
         state.db_seed_job["phase"] = "configuring"
+        state.db_seed_job["import_progress"] = ""
         state.db_seed_job["output"].append("Import complete — configuring replication...")
 
         # ── Run CHANGE MASTER TO ──────────────────────────────────────────────
