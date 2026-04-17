@@ -1059,8 +1059,7 @@ async def _run_seed_job():
             f"[mysql]\nuser={replica_user}\npassword={replica_pass}\n"
             f"host=127.0.0.1\nport=3306\n"
         )
-        import base64 as _b64
-        mycnf_b64 = _b64.b64encode(mycnf_content.encode()).decode()
+        mycnf_b64 = base64.b64encode(mycnf_content.encode()).decode()
         write_mycnf = await asyncio.create_subprocess_exec(
             "ssh", "-i", state.SSH_KEY_PATH,
             "-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes",
@@ -1098,7 +1097,7 @@ async def _run_seed_job():
                 # This ensures moodlesync can run mysql/mariadb via sudo going forward.
                 admin_user = getattr(state, 'ADMIN_VM_USER', 'admmoodle')
                 sudoers_rule = SUDOERS_RULE.format(user=state.AZURE_VM_USER)
-                sudoers_b64 = __import__('base64').b64encode(sudoers_rule.encode()).decode()
+                sudoers_b64 = base64.b64encode(sudoers_rule.encode()).decode()
                 sudoers_cmd = (
                     f"echo '{sudoers_b64}' | base64 -d | sudo tee {SUDOERS_FILE} > /dev/null && "
                     f"sudo chmod 440 {SUDOERS_FILE} && sudo visudo -c -f {SUDOERS_FILE} && echo sudoers_ok"
@@ -1123,7 +1122,7 @@ async def _run_seed_job():
                     f"IDENTIFIED BY '{replica_pass}' WITH GRANT OPTION; "
                     f"FLUSH PRIVILEGES;"
                 )
-                grant_b64 = __import__('base64').b64encode(grant_sql.encode()).decode()
+                grant_b64 = base64.b64encode(grant_sql.encode()).decode()
                 grant_cmd = (
                     f"echo '{grant_b64}' | base64 -d > /tmp/.mdr_grant.sql && "
                     f"(sudo mariadb < /tmp/.mdr_grant.sql 2>/dev/null || "
@@ -1335,7 +1334,7 @@ async def _seed_mysqldump(cfg: dict, db_name: str, skip_dump: bool = False):
             "SET GLOBAL foreign_key_checks = 0; "
             "SET GLOBAL unique_checks = 0;"
         )
-        perf_b64 = _b64.b64encode(perf_sql.encode()).decode()
+        perf_b64 = base64.b64encode(perf_sql.encode()).decode()
         perf_cmd = [
             "ssh", "-i", state.SSH_KEY_PATH,
             "-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes",
@@ -1465,7 +1464,7 @@ async def _seed_mysqldump(cfg: dict, db_name: str, skip_dump: bool = False):
             "SET GLOBAL foreign_key_checks = 1; "
             "SET GLOBAL unique_checks = 1;"
         )
-        restore_b64 = _b64.b64encode(restore_sql.encode()).decode()
+        restore_b64 = base64.b64encode(restore_sql.encode()).decode()
         restore_proc = await asyncio.create_subprocess_exec(
             "ssh", "-i", state.SSH_KEY_PATH,
             "-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes",
@@ -1508,7 +1507,7 @@ async def _seed_mysqldump(cfg: dict, db_name: str, skip_dump: bool = False):
         # Use --defaults-file here too — CHANGE MASTER SQL contains single quotes
         # (MASTER_PASSWORD='...') so we must NOT also have -p'...' on the CLI.
         # Write change_master_sql to a temp file on the replica, then source it.
-        cm_sql_b64 = _b64.b64encode(change_master_sql.encode()).decode()
+        cm_sql_b64 = base64.b64encode(change_master_sql.encode()).decode()
         cm_cmd = [
             "ssh", "-i", state.SSH_KEY_PATH,
             "-o", "StrictHostKeyChecking=accept-new",
