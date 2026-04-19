@@ -359,6 +359,16 @@ const ICONS = {
 };
 
 // ── UTILITY HELPERS ───────────────────────────────────────────────────────────
+function lagFmt(sec) {
+  if(sec==null||sec==='') return '—';
+  const s=parseInt(sec,10);
+  if(isNaN(s)) return sec;
+  if(s===0) return '0s';
+  if(s<60) return s+'s';
+  if(s<3600) return Math.floor(s/60)+'m '+String(s%60).padStart(2,'0')+'s';
+  if(s<86400){ const h=Math.floor(s/3600),m=Math.floor((s%3600)/60); return h+'h '+(m?m+'m':''); }
+  const d=Math.floor(s/86400),h=Math.floor((s%86400)/3600); return d+'d '+(h?h+'h':'');
+}
 function escHtml(s) {
   if (!s) return '';
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -1752,7 +1762,7 @@ async function loadDbHealth(){
   const io=r.io_running||'—', sql=r.sql_running||'—', lag=r.lag_seconds, status=window._seedRunning?'seeding':(r.status||'unknown');
   const ioEl=document.getElementById('db-io'); if(ioEl){ioEl.textContent=io;ioEl.className=`mc-val ${io==='Yes'?'green':io==='No'?'red':'muted'}`;}
   const sqlEl=document.getElementById('db-sql'); if(sqlEl){sqlEl.textContent=sql;sqlEl.className=`mc-val ${sql==='Yes'?'green':sql==='No'?'red':'muted'}`;}
-  s('db-lag',lag!=null?lag+'s':'—');
+  s('db-lag',lagFmt(lag));
   // Lag humanization + catchup bar
   const lagHumanEl=document.getElementById('db-lag-human');
   const lagBarEl=document.getElementById('db-lag-bar');
@@ -1816,7 +1826,7 @@ async function loadDbEvents(){
       <td style="white-space:nowrap">${timeAgo(h.sampled_at)||h.sampled_at}</td>
       <td><span class="badge ${h.io_running==='Yes'?'badge-green':'badge-red'}">${h.io_running||'—'}</span></td>
       <td><span class="badge ${h.sql_running==='Yes'?'badge-green':'badge-red'}">${h.sql_running||'—'}</span></td>
-      <td>${h.lag_seconds??'—'}s</td>
+      <td>${lagFmt(h.lag_seconds)}</td>
       <td><span class="badge ${h.status==='healthy'?'badge-green':h.status==='error'?'badge-red':'badge-amber'}">${h.status||'—'}</span></td>
       <td style="color:var(--muted);max-width:240px;overflow:hidden;text-overflow:ellipsis;font-size:11px">${escHtml(h.last_io_error||h.last_sql_error||'')}</td>
     </tr>`).join('')}</tbody></table>`;
@@ -2048,7 +2058,7 @@ async function loadSeedStatus(){
   const phaseLabel={'preflight':'Pre-flight','dumping':'Dump','transferring':'Transfer','importing':'Import','configuring':'Configure','done':'Done'};
   const phaseSteps=phases.map((p,i)=>{
     const active=r.phase===p&&r.running;
-    const done=r.result==='ok'||(phaseIdx>i);
+    const done=r.result==='ok'||(!r.running && r.phase==='done')||(phaseIdx>i&&phaseIdx>=0);
     const clr=done?'var(--green)':active?'var(--cyan)':'var(--bg3)';
     const txtClr=done?'var(--green)':active?'var(--cyan)':'var(--muted)';
     return `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1">
@@ -2515,7 +2525,7 @@ async function loadLiveSync(){
   if(disk.source){s('ls-src-pct',disk.source.pct+'%');const b=document.getElementById('ls-src-bar');if(b)b.style.width=disk.source.pct+'%';}
   if(disk.target){s('ls-tgt-pct',disk.target.pct+'%');const b=document.getElementById('ls-tgt-bar');if(b)b.style.width=disk.target.pct+'%';}
   s('ls-io',dbH.io_running||'—'); s('ls-sql',dbH.sql_running||'—');
-  s('ls-lag',dbH.lag_seconds!=null?dbH.lag_seconds+'s':'—'); s('ls-status',dbH.status||'—');
+  s('ls-lag',lagFmt(dbH.lag_seconds)); s('ls-status',dbH.status||'—');
   const hbeat=await apiGet('/api/db/pt/heartbeat-status');
   s('ls-hbeat',hbeat.active?'Running':'Stopped');
   const hist=await apiGet('/api/db/health/history?n=288');
@@ -2661,19 +2671,19 @@ async function loadDrReadiness(){
   if(dbConfigured){
     const dbRunning=dbH.io_running==='Yes'&&dbH.sql_running==='Yes';
     se('dr-sum-db', dbRunning?'Replicating':dbH.status||'Unknown', dbRunning?'green':'amber');
-    const dlEl=document.getElementById('dr-sum-dblabel');if(dlEl)dlEl.textContent=dbLag?`lag: ${dbLag}s`:'lag: ~0s';
+    const dlEl=document.getElementById('dr-sum-dblabel');if(dlEl)dlEl.textContent=dbLag?`lag: ${lagFmt(dbLag)}`:'lag: ~0s';
   } else {
     se('dr-sum-db','Not Configured','muted');
     const dlEl=document.getElementById('dr-sum-dblabel');if(dlEl)dlEl.textContent='DB setup not done';
   }
   se('dr-sum-filerpo', lsyncdOk?'< 60s':'N/A');
-  se('dr-sum-dbrpo', dbConfigured?(dbLag?`${dbLag}s`:'< 5s'):'N/A');
+  se('dr-sum-dbrpo', dbConfigured?(dbLag?lagFmt(dbLag):'< 5s'):'N/A');
 
   // ── RPO/RTO labels ───────────────────────────────────────────────────────
   const s=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
   s('dr-file-rpo',lsyncdOk?'< 60s':'lsyncd not running');
-  s('dr-db-rpo',dbConfigured?(dbLag?`${dbLag}s replication lag`:'~0s'):'DB not configured');
-  s('dr-rpo',rpo?`${rpo}s`:(lsyncdOk?'< 60s':'lsyncd down'));
+  s('dr-db-rpo',dbConfigured?(dbLag?lagFmt(dbLag)+' replication lag':'~0s'):'DB not configured');
+  s('dr-rpo',rpo?lagFmt(rpo):(lsyncdOk?'< 60s':'lsyncd down'));
 
   // ── Deductions ───────────────────────────────────────────────────────────
   const dedEl=document.getElementById('drDeductions');

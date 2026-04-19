@@ -107,18 +107,40 @@ def _query_replica_status(cfg: dict) -> dict:
         last_io_error = row.get("Last_IO_Error", "") or ""
         last_sql_error = row.get("Last_SQL_Error", "") or ""
 
+        # MariaDB uses Gtid_IO_Pos / Using_Gtid instead of MySQL's Retrieved_Gtid_Set / Executed_Gtid_Set
+        retrieved_gtid = (
+            row.get("Retrieved_Gtid_Set")
+            or row.get("Gtid_IO_Pos")
+            or ""
+        )
+        executed_gtid = (
+            row.get("Executed_Gtid_Set")
+            or row.get("Gtid_Slave_Pos")
+            or ""
+        )
+        # Fetch Gtid_Slave_Pos from global var for MariaDB (more accurate)
+        try:
+            cursor.execute("SELECT @@global.gtid_slave_pos")
+            r2 = cursor.fetchone()
+            if r2:
+                val = list(r2.values())[0] if isinstance(r2, dict) else r2[0]
+                if val:
+                    executed_gtid = val
+        except Exception:
+            pass
+        using_gtid = row.get("Using_Gtid") or row.get("Auto_Position", 0)
         return {
             "connected": True,
             "io_running": io_running,
             "sql_running": sql_running,
             "lag_seconds": lag,
-            "retrieved_gtid_set": row.get("Retrieved_Gtid_Set", ""),
-            "executed_gtid_set": row.get("Executed_Gtid_Set", ""),
+            "retrieved_gtid_set": retrieved_gtid,
+            "executed_gtid_set": executed_gtid,
             "last_io_error": last_io_error,
             "last_sql_error": last_sql_error,
             "source_uuid": row.get("Master_UUID", "") or row.get("Source_UUID", ""),
             "ssl_allowed": row.get("Master_SSL_Allowed", "") or row.get("Source_SSL_Allowed", ""),
-            "auto_position": row.get("Auto_Position", 0),
+            "auto_position": using_gtid,
             "heartbeats_received": row.get("Count_Received_Heartbeats", 0),
             "heartbeat_lag": row.get("Last_Heartbeat_Received"),
             "source_host": row.get("Master_Host", "") or row.get("Source_Host", ""),
