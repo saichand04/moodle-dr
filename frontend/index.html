@@ -298,6 +298,7 @@ canvas.chart{width:100%;height:100%}
         <div class="status-pill unknown" id="sshPill"><div class="status-dot unknown"></div>SSH</div>
         <div class="status-pill unknown" id="dbPill"><div class="status-dot unknown"></div>DB</div>
         <div class="status-pill unknown" id="moodledataPill"><div class="status-dot unknown"></div><span id="moodledataPillLabel">moodledata</span></div>
+        <div class="status-pill unknown" id="wgPill"><div class="status-dot unknown"></div>WG Tunnel</div>
       </div>
       <div class="topbar-clock" id="topClock"></div>
       <div class="topbar-date" id="topDate"></div>
@@ -602,6 +603,7 @@ function buildNav() {
   if(isSetupComplete){
     groups.push({group:'Integrations',items:[
       {key:'ext_access',label:'External Access',icon:'globe'},
+      {key:'wireguard',label:'WireGuard VPN',icon:'activity'},
       {key:'notifications',label:'Notifications',icon:'bell'},
       {key:'openclaw',label:'OpenClaw API',icon:'cpu'},
     ]});
@@ -654,7 +656,7 @@ function showPage(key) {
     welcome:'Welcome',srv_details:'Server Details',prereqs:'Prerequisites',
     configure:'Auto-Configure',bulk_sync:'Bulk Sync',start_repl:'Start Replication',
     verify:'Verify',dashboard:'File Sync Status',transfers:'Transfers',connectivity:'Connectivity',
-    failover:'File Failover',file_settings:'File Settings',db_replication:'DB Replication Status',
+    failover:'File Failover',file_settings:'File Settings',db_replication:'DB Replication Status',wireguard:'WireGuard VPN',
     db_integrity:'DB Integrity',db_failover:'DB Failover',db_settings:'DB Settings',
     initial_migration:'Initial Migration',live_sync:'Live Sync',dr_readiness:'DR Readiness',
     ext_access:'External Access',notifications:'Notifications',openclaw:'OpenClaw API',
@@ -690,6 +692,7 @@ function renderPage(key) {
     case 'dr_readiness': c.innerHTML=pageDrReadiness(); initDrReadiness(); break;
     case 'ext_access': c.innerHTML=pageExtAccess(); initExtAccess(); break;
     case 'notifications': c.innerHTML=pageNotifications(); initNotifications(); break;
+    case 'wireguard': c.innerHTML=pageWireGuard(); initWireGuard(); break;
     case 'openclaw': c.innerHTML=pageOpenClaw(); initOpenClaw(); break;
     default: c.innerHTML=`<div class="empty-state">Page not found: ${escHtml(key)}</div>`;
   }
@@ -727,6 +730,18 @@ async function pollTopbar() {
       const dot=mdEl.querySelector('.status-dot');
       if(dot) dot.className=`status-dot ${cls}`;
     }
+    // WireGuard pill
+    try {
+      const wg = await apiGet('/api/integrations/wireguard/status');
+      const wgEl = document.getElementById('wgPill');
+      if (wgEl && wg) {
+        const cls = wg.active ? 'healthy' : (wg.configured ? 'warn' : 'unknown');
+        wgEl.className = `status-pill ${cls}`;
+        const dot = wgEl.querySelector('.status-dot');
+        if (dot) dot.className = `status-dot ${cls}`;
+        wgEl.childNodes[wgEl.childNodes.length-1].textContent = wg.active ? 'WG Active' : (wg.configured ? 'WG Down' : 'WG Tunnel');
+      }
+    } catch(e2) {}
   } catch(e){}
 }
 function startTopbarPolling(){ pollTopbar(); setInterval(pollTopbar,30000); }
@@ -1659,7 +1674,7 @@ function pageDbReplication() {
     <div class="metric-row">
       <div class="mc"><div class="mc-label">${ICONS.activity} IO Thread</div><div class="mc-val" id="db-io">—</div></div>
       <div class="mc"><div class="mc-label">${ICONS.activity} SQL Thread</div><div class="mc-val" id="db-sql">—</div></div>
-      <div class="mc"><div class="mc-label">${ICONS.clock} Lag</div><div class="mc-val cyan" id="db-lag">—</div><div class="mc-sub">seconds</div></div>
+      <div class="mc"><div class="mc-label">${ICONS.clock} Replication Lag</div><div class="mc-val cyan" id="db-lag">—</div><div class="mc-sub" id="db-lag-human">seconds behind master</div><div style="margin-top:8px;height:4px;border-radius:2px;background:var(--bg3);overflow:hidden"><div id="db-lag-bar" style="height:100%;width:0%;background:var(--cyan);transition:width .5s ease;border-radius:2px"></div></div><div style="font-size:10px;color:var(--text3);margin-top:4px" id="db-lag-eta"></div></div>
       <div class="mc"><div class="mc-label">${ICONS.git} Status</div><div class="mc-val" id="db-status">—</div></div>
     </div>
 
@@ -1717,6 +1732,39 @@ async function loadDbHealth(){
   const ioEl=document.getElementById('db-io'); if(ioEl){ioEl.textContent=io;ioEl.className=`mc-val ${io==='Yes'?'green':io==='No'?'red':'muted'}`;}
   const sqlEl=document.getElementById('db-sql'); if(sqlEl){sqlEl.textContent=sql;sqlEl.className=`mc-val ${sql==='Yes'?'green':sql==='No'?'red':'muted'}`;}
   s('db-lag',lag!=null?lag+'s':'—');
+  // Lag humanization + catchup bar
+  const lagHumanEl=document.getElementById('db-lag-human');
+  const lagBarEl=document.getElementById('db-lag-bar');
+  const lagEtaEl=document.getElementById('db-lag-eta');
+  if(lagHumanEl && lag!=null){
+    if(lag===0){lagHumanEl.textContent='Fully caught up';if(lagBarEl){lagBarEl.style.width='100%';lagBarEl.style.background='var(--green)';}}
+    else if(lag<60){lagHumanEl.textContent=`${lag}s behind`;}
+    else if(lag<3600){lagHumanEl.textContent=`${Math.round(lag/60)}m behind`;}
+    else if(lag<86400){lagHumanEl.textContent=`${(lag/3600).toFixed(1)}h behind`;}
+    else{lagHumanEl.textContent=`${(lag/86400).toFixed(1)}d behind`;}
+    // bar: 0s=100% full cyan, >1day=red 5%
+    const maxLag=86400*5; // 5 days = 0%
+    const pct=Math.max(5,Math.min(100,Math.round((1-(lag/maxLag))*100)));
+    if(lagBarEl){lagBarEl.style.width=pct+'%';lagBarEl.style.background=lag===0?'var(--green)':lag<3600?'var(--cyan)':lag<86400?'var(--amber)':'var(--red)';}
+    if(lagEtaEl){
+      // Estimate ETA based on catchup rate stored in window
+      if(!window._lagHistory) window._lagHistory=[];
+      window._lagHistory.push({t:Date.now(),lag});
+      if(window._lagHistory.length>10) window._lagHistory.shift();
+      if(window._lagHistory.length>=2){
+        const oldest=window._lagHistory[0], newest=window._lagHistory[window._lagHistory.length-1];
+        const dtSec=(newest.t-oldest.t)/1000;
+        const dLag=oldest.lag-newest.lag; // positive = catching up
+        if(dLag>0 && dtSec>0){
+          const rate=dLag/dtSec; // seconds of lag per second
+          const etaSec=lag/rate;
+          if(etaSec<3600) lagEtaEl.textContent=`~${Math.round(etaSec/60)}m to catch up`;
+          else lagEtaEl.textContent=`~${(etaSec/3600).toFixed(1)}h to catch up`;
+        } else if(dLag<0){ lagEtaEl.textContent='Lag increasing'; lagEtaEl.style.color='var(--red)'; }
+        else { lagEtaEl.textContent='Monitoring...'; }
+      }
+    }
+  }
   const stEl=document.getElementById('db-status');
   if(stEl){stEl.textContent=status;stEl.className=`mc-val ${status==='healthy'?'green':status==='seeding'?'cyan':status==='error'?'red':status==='lagging'?'amber':'muted'}`;}
   s('db-retrieved',r.retrieved_gtid_set||'(empty)'); s('db-executed',r.executed_gtid_set||'(empty)');
@@ -1760,6 +1808,189 @@ async function dbCtrl(endpoint,label){
   showToast(r.ok?`${label} OK`:`${label} failed: ${r.error}`,r.ok?'ok':'err');
   if(r.ok) setTimeout(loadDbHealth,1000);
 }
+// ── WIREGUARD PAGE ─────────────────────────────────────────────────────────────
+function pageWireGuard(){
+  return `
+    <div class="page-header">
+      <div class="page-title">WireGuard VPN Tunnel</div>
+      <div class="page-sub">Encrypted site-to-site tunnel between on-prem and Azure VM for secure DB replication</div>
+    </div>
+
+    <div class="metric-row" style="grid-template-columns:repeat(4,1fr)">
+      <div class="mc"><div class="mc-label">${ICONS.activity} Tunnel Status</div><div class="mc-val" id="wg-status">—</div></div>
+      <div class="mc"><div class="mc-label">${ICONS.clock} Last Handshake</div><div class="mc-val cyan" id="wg-handshake">—</div></div>
+      <div class="mc"><div class="mc-label">${ICONS.database} Transfer RX</div><div class="mc-val violet" id="wg-rx">—</div></div>
+      <div class="mc"><div class="mc-label">${ICONS.database} Transfer TX</div><div class="mc-val" id="wg-tx">—</div></div>
+    </div>
+
+    <div class="three-col">
+      <div class="card" style="margin:0">
+        <div class="panel-title">${ICONS.settings} Tunnel Info</div>
+        <div class="kv-row"><span class="kv-key">Interface</span><span class="kv-val" id="wg-iface">wg0</span></div>
+        <div class="kv-row"><span class="kv-key">Local IP</span><span class="kv-val" id="wg-local-ip">—</span></div>
+        <div class="kv-row"><span class="kv-key">Listen Port</span><span class="kv-val" id="wg-port">51820</span></div>
+        <div class="kv-row"><span class="kv-key">Peer Endpoint</span><span class="kv-val" id="wg-endpoint">—</span></div>
+        <div class="kv-row"><span class="kv-key">Allowed IPs</span><span class="kv-val" id="wg-allowed">—</span></div>
+        <div class="kv-row"><span class="kv-key">Keepalive</span><span class="kv-val" id="wg-keepalive">25s</span></div>
+      </div>
+
+      <div class="card" style="margin:0">
+        <div class="panel-title">${ICONS.activity} Controls</div>
+        <div id="wgCtrlOutput" style="margin-bottom:10px"></div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <button class="btn btn-success btn-sm" onclick="wgCtrl('start')">Start Tunnel</button>
+          <button class="btn btn-danger btn-sm" onclick="wgCtrl('stop')">Stop Tunnel</button>
+          <button class="btn btn-ghost btn-sm" onclick="wgCtrl('restart')">Restart Tunnel</button>
+          <button class="btn btn-ghost btn-sm" onclick="wgRefresh()">Refresh Status</button>
+          <button class="btn btn-amber btn-sm" onclick="wgCtrl('enable')">Enable on Boot</button>
+          <button class="btn btn-ghost btn-sm" onclick="wgCtrl('disable')">Disable on Boot</button>
+        </div>
+      </div>
+
+      <div class="card" style="margin:0">
+        <div class="panel-title">${ICONS.cpu} Auto-Setup</div>
+        <div style="font-size:12px;color:var(--text3);margin-bottom:14px;line-height:1.6">
+          Automates the full WireGuard installation on <strong style="color:var(--text)">this server</strong>.
+          Keypairs are generated, config written, and tunnel brought up.
+          Run separately on source server.
+        </div>
+        <div class="form-row">
+          <label class="form-label">This Server Tunnel IP</label>
+          <input class="input" id="wgLocalIpInput" placeholder="e.g. 10.10.0.2" value="10.10.0.2"/>
+        </div>
+        <div class="form-row">
+          <label class="form-label">Peer Public Key</label>
+          <input class="input" id="wgPeerPubkey" placeholder="Paste on-prem public key"/>
+        </div>
+        <div class="form-row">
+          <label class="form-label">Peer Endpoint (IP:Port)</label>
+          <input class="input" id="wgPeerEndpoint" placeholder="e.g. 20.86.145.98:51820 or leave blank if listen side"/>
+        </div>
+        <div class="form-row">
+          <label class="form-label">Peer Allowed IPs</label>
+          <input class="input" id="wgPeerAllowed" placeholder="e.g. 10.10.0.1/32"/>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:4px">
+          <button class="btn btn-primary btn-sm" onclick="wgAutoSetup()">Run Auto-Setup</button>
+          <button class="btn btn-ghost btn-sm" onclick="wgGenKeys()">Generate Keys</button>
+        </div>
+        <div id="wgSetupOutput" style="margin-top:10px"></div>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-top:16px">
+      <div class="panel-title">${ICONS.activity} WireGuard Commands Reference</div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:12px">All commands executed during setup — for reference and manual troubleshooting.</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div>
+          <div class="form-section-title" style="margin-bottom:8px">Installation</div>
+          <div class="code-block" style="font-size:11px;line-height:1.8">apt update && apt install -y wireguard</div>
+          <div class="form-section-title" style="margin:12px 0 8px">Key Generation</div>
+          <div class="code-block" style="font-size:11px;line-height:1.8">wg genkey | tee /etc/wireguard/private.key | wg pubkey > /etc/wireguard/public.key
+chmod 600 /etc/wireguard/private.key
+cat /etc/wireguard/public.key</div>
+          <div class="form-section-title" style="margin:12px 0 8px">Service Management</div>
+          <div class="code-block" style="font-size:11px;line-height:1.8">systemctl enable wg-quick@wg0
+systemctl start wg-quick@wg0
+systemctl stop wg-quick@wg0
+systemctl restart wg-quick@wg0
+systemctl status wg-quick@wg0</div>
+        </div>
+        <div>
+          <div class="form-section-title" style="margin-bottom:8px">Status & Diagnostics</div>
+          <div class="code-block" style="font-size:11px;line-height:1.8">wg show
+wg show wg0
+ping -c 3 10.10.0.1   # from Azure
+ping -c 3 10.10.0.2   # from on-prem
+nc -zuv 20.86.145.98 51820 -w 5  # test UDP</div>
+          <div class="form-section-title" style="margin:12px 0 8px">DB Grant After Tunnel</div>
+          <div class="code-block" style="font-size:11px;line-height:1.8">-- Run on SOURCE (on-prem):
+GRANT REPLICATION SLAVE ON *.* TO
+  'moodledbsync'@'10.10.0.2'
+  IDENTIFIED BY 'ReplSync@2024!';
+FLUSH PRIVILEGES;
+
+-- Run on REPLICA (Azure):
+CHANGE MASTER TO
+  MASTER_HOST='10.10.0.1',
+  MASTER_USE_GTID=slave_pos,
+  MASTER_SSL=1;
+SET GLOBAL slave_exec_mode='IDEMPOTENT';
+START SLAVE;</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function initWireGuard(){ await wgRefresh(); pollTimers['wg']=setInterval(wgRefresh,15000); }
+
+async function wgRefresh(){
+  const r=await apiGet('/api/integrations/wireguard/status'); if(!r) return;
+  const s=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
+  const stEl=document.getElementById('wg-status');
+  if(stEl){
+    const active=r.active;
+    stEl.textContent=active?'Active':'Inactive';
+    stEl.className=`mc-val ${active?'green':'red'}`;
+  }
+  s('wg-handshake',r.last_handshake||'—');
+  s('wg-rx',r.transfer_rx||'—');
+  s('wg-tx',r.transfer_tx||'—');
+  s('wg-local-ip',r.local_ip||'—');
+  s('wg-port',r.listen_port||'51820');
+  s('wg-endpoint',r.peer_endpoint||'—');
+  s('wg-allowed',r.peer_allowed_ips||'—');
+}
+
+async function wgCtrl(action){
+  const el=document.getElementById('wgCtrlOutput');
+  if(el) el.innerHTML=`<div class="banner banner-ok" style="padding:8px 12px"><div class="banner-text" style="font-size:12px">Running ${action}...</div></div>`;
+  const r=await apiPost('/api/integrations/wireguard/'+action,{});
+  if(el) el.innerHTML=`<div class="banner ${r&&r.ok?'banner-ok':'banner-err'}" style="padding:8px 12px"><div class="banner-text" style="font-size:12px">${escHtml(r&&r.message||r&&r.error||'done')}</div></div>`;
+  showToast(r&&r.ok?`WireGuard ${action} OK`:`WireGuard ${action} failed`,r&&r.ok?'ok':'err');
+  setTimeout(wgRefresh,1500);
+}
+
+async function wgGenKeys(){
+  const r=await apiPost('/api/integrations/wireguard/genkeys',{});
+  const el=document.getElementById('wgSetupOutput');
+  if(!el) return;
+  if(r&&r.ok){
+    el.innerHTML=`<div class="banner banner-ok" style="padding:10px 12px">
+      <div class="banner-text">
+        <div class="banner-title">Keys Generated</div>
+        <div class="banner-body" style="font-size:11px;margin-top:6px">
+          <strong>Public Key (share with peer):</strong><br>
+          <span style="font-family:var(--mono);word-break:break-all;color:var(--cyan)">${escHtml(r.public_key)}</span>
+        </div>
+      </div>
+    </div>`;
+    if(r.public_key) document.getElementById('wgPeerPubkey') && (document.getElementById('wgPeerPubkey').placeholder='Your key generated — paste PEER key here');
+  } else {
+    el.innerHTML=`<div class="banner banner-err" style="padding:8px 12px"><div class="banner-text" style="font-size:12px">${escHtml(r&&r.error||'Failed')}</div></div>`;
+  }
+}
+
+async function wgAutoSetup(){
+  const localIp=document.getElementById('wgLocalIpInput')?.value?.trim();
+  const peerKey=document.getElementById('wgPeerPubkey')?.value?.trim();
+  const peerEndpoint=document.getElementById('wgPeerEndpoint')?.value?.trim();
+  const peerAllowed=document.getElementById('wgPeerAllowed')?.value?.trim();
+  if(!peerKey){showToast('Peer public key is required','err');return;}
+  const el=document.getElementById('wgSetupOutput');
+  if(el) el.innerHTML=`<div class="banner banner-ok" style="padding:8px 12px"><div class="banner-text" style="font-size:12px">Running setup... this may take 30s</div></div>`;
+  const r=await apiPost('/api/integrations/wireguard/setup',{local_ip:localIp,peer_pubkey:peerKey,peer_endpoint:peerEndpoint||null,peer_allowed_ips:peerAllowed||'10.10.0.1/32'});
+  if(el) el.innerHTML=`<div class="banner ${r&&r.ok?'banner-ok':'banner-err'}" style="padding:10px 12px">
+    <div class="banner-text">
+      <div class="banner-title">${r&&r.ok?'Setup Complete':'Setup Failed'}</div>
+      <div class="banner-body" style="font-size:11px;white-space:pre-wrap">${escHtml(r&&r.message||r&&r.error||'')}</div>
+    </div>
+  </div>`;
+  showToast(r&&r.ok?'WireGuard setup complete':'Setup failed',r&&r.ok?'ok':'err');
+  if(r&&r.ok) setTimeout(wgRefresh,2000);
+}
+
 function startReplication(){dbCtrl('/api/db/replication/start','Start Replica');}
 function stopReplication(){dbCtrl('/api/db/replication/stop','Stop Replica');}
 function resetReplication(){if(confirm('Reset replica? Requires reconfiguration.'))dbCtrl('/api/db/replication/reset','Reset Replica');}

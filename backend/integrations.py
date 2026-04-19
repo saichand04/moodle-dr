@@ -485,3 +485,223 @@ Run every 5 minutes:
     return PlainTextResponse(content=content, headers={
         "Content-Disposition": "attachment; filename=moodle-dr-skill.md"
     })
+
+# ── WireGuard VPN ──────────────────────────────────────────────────────────────
+
+import re as _re
+import shutil as _shutil
+import textwrap as _textwrap
+
+def _wg_parse_show() -> dict:
+    """Parse `wg show wg0` output into a structured dict."""
+    r = run_cmd(["wg", "show", "wg0"], timeout=10)
+    if not r["ok"] and not r["stdout"]:
+        return {"active": False}
+
+    out = r["stdout"] + r["stderr"]
+    result: dict = {"active": False}
+
+    # Check if interface exists via ip link
+    ip_r = run_cmd(["ip", "link", "show", "wg0"], timeout=5)
+    result["active"] = ip_r["ok"] and "wg0" in ip_r["stdout"]
+
+    for line in out.splitlines():
+        line = line.strip()
+        if line.startswith("listening port:"):
+            result["listen_port"] = line.split(":", 1)[1].strip()
+        elif line.startswith("endpoint:"):
+            result["peer_endpoint"] = line.split(":", 1)[1].strip()
+        elif line.startswith("allowed ips:"):
+            result["peer_allowed_ips"] = line.split(":", 1)[1].strip()
+        elif line.startswith("latest handshake:"):
+            result["last_handshake"] = line.split(":", 1)[1].strip()
+        elif line.startswith("transfer:"):
+            parts = line.split(":", 1)[1].strip()
+            m = _re.match(r"([\d.]+ \w+) received, ([\d.]+ \w+) sent", parts)
+            if m:
+                result["transfer_rx"] = m.group(1)
+                result["transfer_tx"] = m.group(2)
+        elif line.startswith("persistent keepalive:"):
+            result["keepalive"] = line.split(":", 1)[1].strip()
+
+    # Get local IP from interface
+    ip2 = run_cmd(["ip", "-4", "addr", "show", "wg0"], timeout=5)
+    m2 = _re.search(r"inet ([\d.]+)/", ip2.get("stdout", ""))
+    if m2:
+        result["local_ip"] = m2.group(1)
+
+    result["configured"] = (
+        _re.search(r"\[Interface\]", open("/etc/wireguard/wg0.conf").read()) is not None
+        if __import__("os").path.exists("/etc/wireguard/wg0.conf") else False
+    )
+    return result
+
+
+@router.get("/wireguard/status")
+def wg_status():
+    return _wg_parse_show()
+
+
+@router.post("/wireguard/start")
+def wg_start():
+    # Try systemctl first, fallback to wg-quick
+    r = run_cmd(["systemctl", "start", "wg-quick@wg0"], timeout=20)
+    if not r["ok"]:
+        r2 = run_cmd(["wg-quick", "up", "wg0"], timeout=20)
+        if not r2["ok"]:
+            return {"ok": False, "error": r2["stderr"] or r["stderr"]}
+    return {"ok": True, "message": "WireGuard tunnel started"}
+
+
+@router.post("/wireguard/stop")
+def wg_stop():
+    r = run_cmd(["systemctl", "stop", "wg-quick@wg0"], timeout=20)
+    if not r["ok"]:
+        r2 = run_cmd(["wg-quick", "down", "wg0"], timeout=20)
+        if not r2["ok"]:
+            return {"ok": False, "error": r2["stderr"] or r["stderr"]}
+    return {"ok": True, "message": "WireGuard tunnel stopped"}
+
+
+@router.post("/wireguard/restart")
+def wg_restart():
+    run_cmd(["systemctl", "stop", "wg-quick@wg0"], timeout=15)
+    import time; time.sleep(1)
+    r = run_cmd(["systemctl", "start", "wg-quick@wg0"], timeout=20)
+    if not r["ok"]:
+        return {"ok": False, "error": r["stderr"]}
+    return {"ok": True, "message": "WireGuard tunnel restarted"}
+
+
+@router.post("/wireguard/enable")
+def wg_enable():
+    r = run_cmd(["systemctl", "enable", "wg-quick@wg0"])
+    return {"ok": r["ok"], "message": "WireGuard enabled on boot" if r["ok"] else r["stderr"]}
+
+
+@router.post("/wireguard/disable")
+def wg_disable():
+    r = run_cmd(["systemctl", "disable", "wg-quick@wg0"])
+    return {"ok": r["ok"], "message": "WireGuard disabled on boot" if r["ok"] else r["stderr"]}
+
+
+@router.post("/wireguard/genkeys")
+def wg_genkeys():
+    """Generate a new keypair and save to /etc/wireguard/."""
+    import os
+    os.makedirs("/etc/wireguard", exist_ok=True)
+    # Generate private key
+    priv_r = run_cmd(["wg", "genkey"], timeout=10)
+    if not priv_r["ok"] or not priv_r["stdout"]:
+        return {"ok": False, "error": "wg not installed or genkey failed: " + priv_r["stderr"]}
+    private_key = priv_r["stdout"].strip()
+    # Derive public key
+    pub_r = subprocess.run(["wg", "pubkey"], input=private_key, capture_output=True, text=True, timeout=10)
+    if pub_r.returncode != 0:
+        return {"ok": False, "error": pub_r.stderr}
+    public_key = pub_r.stdout.strip()
+    # Save keys
+    priv_path = "/etc/wireguard/private.key"
+    pub_path = "/etc/wireguard/public.key"
+    with open(priv_path, "w") as f:
+        f.write(private_key + "\n")
+    import stat
+    __import__("os").chmod(priv_path, stat.S_IRUSR | stat.S_IWUSR)
+    with open(pub_path, "w") as f:
+        f.write(public_key + "\n")
+    return {"ok": True, "public_key": public_key, "message": f"Keys saved to {priv_path} and {pub_path}"}
+
+
+@router.post("/wireguard/setup")
+def wg_setup(body: dict):
+    """
+    Full automated WireGuard setup:
+    1. Install wireguard (apt)
+    2. Generate keypair if not exists
+    3. Write /etc/wireguard/wg0.conf
+    4. Enable + start wg-quick@wg0
+    """
+    import os, stat
+
+    local_ip: str = body.get("local_ip", "10.10.0.2")
+    peer_pubkey: str = body.get("peer_pubkey", "")
+    peer_endpoint: str = body.get("peer_endpoint", "")  # optional — blank = listen side
+    peer_allowed: str = body.get("peer_allowed_ips", "10.10.0.1/32")
+    listen_port: int = int(body.get("listen_port", 51820))
+    keepalive: int = int(body.get("keepalive", 25))
+
+    if not peer_pubkey:
+        return {"ok": False, "error": "peer_pubkey is required"}
+
+    log = []
+
+    # Step 1 — install if missing
+    if not _shutil.which("wg"):
+        log.append("Installing wireguard...")
+        r = run_cmd(["apt-get", "install", "-y", "wireguard"], timeout=120)
+        if not r["ok"]:
+            return {"ok": False, "error": "apt install wireguard failed: " + r["stderr"]}
+        log.append("WireGuard installed OK")
+    else:
+        log.append("WireGuard already installed")
+
+    # Step 2 — generate keys if needed
+    priv_path = "/etc/wireguard/private.key"
+    pub_path = "/etc/wireguard/public.key"
+    os.makedirs("/etc/wireguard", exist_ok=True)
+
+    if not os.path.exists(priv_path):
+        priv_r = run_cmd(["wg", "genkey"], timeout=10)
+        if not priv_r["ok"]:
+            return {"ok": False, "error": "genkey failed"}
+        private_key = priv_r["stdout"].strip()
+        pub_r = subprocess.run(["wg", "pubkey"], input=private_key, capture_output=True, text=True)
+        public_key = pub_r.stdout.strip()
+        with open(priv_path, "w") as f:
+            f.write(private_key + "\n")
+        os.chmod(priv_path, stat.S_IRUSR | stat.S_IWUSR)
+        with open(pub_path, "w") as f:
+            f.write(public_key + "\n")
+        log.append(f"Keypair generated. Public key: {public_key}")
+    else:
+        with open(pub_path) as f:
+            public_key = f.read().strip()
+        log.append(f"Using existing keypair. Public key: {public_key}")
+
+    with open(priv_path) as f:
+        private_key = f.read().strip()
+
+    # Step 3 — write wg0.conf
+    peer_block = f"""[Peer]
+PublicKey = {peer_pubkey}
+AllowedIPs = {peer_allowed}
+"""
+    if peer_endpoint:
+        peer_block += f"Endpoint = {peer_endpoint}\n"
+        peer_block += f"PersistentKeepalive = {keepalive}\n"
+
+    conf = f"""[Interface]
+Address = {local_ip}/24
+ListenPort = {listen_port}
+PrivateKey = {private_key}
+
+{peer_block}"""
+
+    conf_path = "/etc/wireguard/wg0.conf"
+    with open(conf_path, "w") as f:
+        f.write(conf)
+    os.chmod(conf_path, stat.S_IRUSR | stat.S_IWUSR)
+    log.append("wg0.conf written")
+
+    # Step 4 — enable + start
+    run_cmd(["systemctl", "stop", "wg-quick@wg0"], timeout=10)
+    r_en = run_cmd(["systemctl", "enable", "wg-quick@wg0"])
+    r_st = run_cmd(["systemctl", "start", "wg-quick@wg0"], timeout=20)
+    if not r_st["ok"]:
+        log.append("WARNING: start failed: " + r_st["stderr"])
+        return {"ok": False, "error": "\n".join(log) + "\n\nStart error: " + r_st["stderr"]}
+
+    log.append("wg-quick@wg0 started and enabled")
+    log.append(f"\nYour public key (share with peer):\n{public_key}")
+
+    return {"ok": True, "message": "\n".join(log), "public_key": public_key}
