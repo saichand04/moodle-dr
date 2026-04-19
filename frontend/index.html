@@ -503,7 +503,7 @@ function updateStatusPills(ssh, db) {
   const dbEl=document.getElementById('dbPill');
   if(!sshEl||!dbEl) return;
   function setP(el,ok,label){
-    const cls=ok===true?'healthy':ok===false?'error':'unknown';
+    const cls=ok===true?'healthy':ok===false?'error':ok==='warn'?'warn':'unknown';
     el.className=`status-pill ${cls}`;
     el.innerHTML=`<div class="status-dot ${cls}"></div>${label}`;
   }
@@ -709,8 +709,29 @@ async function pollTopbar() {
     // SSH pill — green if lsyncd active (means SSH tunnel alive), else check watchdog
     const sshOk = lsyncd.status==='active' || s.file_sync?.lsyncd_running!==false;
     const dbSt=s.db_sync?.status;
-    const dbOk=dbSt==='healthy'?true:(dbSt==='error'||dbSt==='stopped')?false:null;
+    // healthy=green, lagging=amber, error/stopped=red, unconfigured/unknown=grey
+    let dbOk=null;
+    if(dbSt==='healthy') dbOk=true;
+    else if(dbSt==='error'||dbSt==='stopped') dbOk=false;
+    else if(dbSt==='lagging'||dbSt==='seeding') dbOk='warn';
     updateStatusPills(sshOk,dbOk);
+    // Also directly poll /api/db/health to keep state fresh (even when not on DB page)
+    try{
+      const dbH=await apiGet('/api/db/health');
+      if(dbH&&dbH.status){
+        const st=dbH.status;
+        let ok2=null;
+        if(st==='healthy') ok2=true;
+        else if(st==='error'||st==='stopped') ok2=false;
+        else if(st==='lagging'||st==='seeding') ok2='warn';
+        const dbEl2=document.getElementById('dbPill');
+        if(dbEl2&&ok2!==null){
+          const cls=ok2===true?'healthy':ok2===false?'error':'warn';
+          dbEl2.className=`status-pill ${cls}`;
+          dbEl2.innerHTML=`<div class="status-dot ${cls}"></div>DB`;
+        }
+      }
+    }catch(e3){}
     // moodledata pill — green=disk<85%, amber=disk>85%, unknown=no data
     const mdEl=document.getElementById('moodledataPill');
     const mdLbl=document.getElementById('moodledataPillLabel');
