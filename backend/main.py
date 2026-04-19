@@ -103,7 +103,31 @@ async def lifespan(app: FastAPI):
     # 4. Register rsync trigger callback
     state.trigger_rsync_fn = _trigger_rsync_job
 
-    # 5. Start connectivity watchdog
+    # 5. Auto-detect seed completion: if replication is already healthy,
+    #    mark seed job as done so the UI shows completed state on restart.
+    if state.db_setup_complete and not state.db_seed_job.get("result"):
+        try:
+            from db_replication import _get_mysql_conn, _query_replica_status
+            _db_cfg2 = (db_replication_db.get_raw_db_config() or {})
+            if _db_cfg2:
+                rep_status = _query_replica_status(_db_cfg2)
+                io_ok  = rep_status.get("io_running") == "Yes"
+                sql_ok = rep_status.get("sql_running") == "Yes"
+                if io_ok and sql_ok:
+                    from datetime import datetime
+                    state.db_seed_job.update({
+                        "running": False,
+                        "phase": "done",
+                        "progress": 100,
+                        "result": "ok",
+                        "error": "",
+                        "output": ["[Auto-detected] Replication healthy — seed previously completed outside app."],
+                        "ended_at": datetime.utcnow().isoformat(),
+                    })
+        except Exception:
+            pass
+
+    # 6. Start connectivity watchdog
     state.watchdog = ConnectivityWatchdog(check_interval=30)
     state.watchdog.start()
 

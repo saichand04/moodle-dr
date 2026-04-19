@@ -2621,7 +2621,7 @@ async function loadDrReadiness(){
   //   IO thread ON   : 20
   //   SQL thread ON  : 20
   //   Lag < 60s      : 12
-  //   pt-heartbeat   :  8
+  //   WireGuard up   :  8
   const lsyncdOk = lsyncd.status==='active';
   const sshOk    = ssh.connected===true;
   const srcOk    = (disk.source?.pct||0)<85;
@@ -2638,16 +2638,18 @@ async function loadDrReadiness(){
     if(srcOk)    fileScore += 10;
     if(tgtOk)    fileScore +=  5;
   }
+  // Fetch WireGuard status for scoring
+  let wgActive = false;
+  try{ const wgS=await apiGet('/api/integrations/wireguard/status'); wgActive=wgS&&wgS.active===true; }catch(e){}
   let dbScore = 0;
   if(dbConfigured){
     const ioOk  = dbH.io_running==='Yes';
     const sqlOk = dbH.sql_running==='Yes';
     const lagOk = (dbH.lag_seconds??999)<60;
-    const hbOk  = hbeat.active===true;
-    if(ioOk)  dbScore += 20;
-    if(sqlOk) dbScore += 20;
-    if(lagOk) dbScore += 12;
-    if(hbOk)  dbScore +=  8;
+    if(ioOk)    dbScore += 20;
+    if(sqlOk)   dbScore += 20;
+    if(lagOk)   dbScore += 12;
+    if(wgActive) dbScore +=  8;
   }
   const score = Math.min(dbConfigured ? 100 : 65, fileScore + dbScore);
   const rpo   = pub.dr_readiness?.rpo_seconds??0;
@@ -2713,7 +2715,7 @@ async function loadDrReadiness(){
     {name:'MySQL IO thread ON',ok:dbH.io_running==='Yes'},
     {name:'MySQL SQL thread ON',ok:dbH.sql_running==='Yes'},
     {name:'DB lag < 60s',ok:(dbH.lag_seconds??999)<60},
-    {name:'pt-heartbeat running',ok:hbeat.active},
+    {name:'WireGuard tunnel active',ok:wgActive},
   ]:[
     {name:'MySQL IO thread ON',na:true},
     {name:'MySQL SQL thread ON',na:true},
