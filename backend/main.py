@@ -35,6 +35,7 @@ from transfers import router as transfers_router
 from db_replication import router as db_replication_router
 from public_api import router as public_api_router
 from integrations import router as integrations_router
+from upgrade import router as upgrade_router
 from watchdog import ConnectivityWatchdog
 
 # ── Runtime config from environment ───────────────────────────────────────────
@@ -154,6 +155,7 @@ app.include_router(transfers_router)
 app.include_router(db_replication_router)
 app.include_router(public_api_router)
 app.include_router(integrations_router)
+app.include_router(upgrade_router)
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────

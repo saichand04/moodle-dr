@@ -494,6 +494,7 @@ const ICONS = {
   send:`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>`,
   plus:`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>`,
   download:`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`,
+  upload:`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>`,
   toggle:`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="1" y="5" width="22" height="14" rx="7"/><circle cx="8" cy="12" r="3"/></svg>`,
 };
 
@@ -757,6 +758,10 @@ function buildNav() {
       {key:'openclaw',label:'OpenClaw API',icon:'cpu'},
     ]});
   }
+  // Moodle Upgrade — always visible, independent of DR setup state
+  groups.push({group:'Moodle Upgrade',items:[
+    {key:'upgrade',label:'Upgrade Manager',icon:'upload'},
+  ]});
   return groups;
 }
 
@@ -843,6 +848,7 @@ function renderPage(key) {
     case 'notifications': c.innerHTML=pageNotifications(); initNotifications(); break;
     case 'wireguard': c.innerHTML=pageWireGuard(); initWireGuard(); break;
     case 'openclaw': c.innerHTML=pageOpenClaw(); initOpenClaw(); break;
+    case 'upgrade': c.innerHTML=pageUpgrade(); initUpgrade(); break;
     default: c.innerHTML=`<div class="empty-state">Page not found: ${escHtml(key)}</div>`;
   }
 }
@@ -992,6 +998,11 @@ function pagePWelcome() {
           <div style="font-size:15px;font-weight:600;color:var(--green,#4ade80);margin-bottom:6px">${ICONS.shield} Full DR Setup</div>
           <div style="font-size:12px;color:var(--muted);line-height:1.5">Complete disaster recovery — file sync + database replication + unified DR dashboard.</div>
           <div style="margin-top:12px"><button class="btn btn-primary btn-sm" onclick="event.stopPropagation();startSetup('both')">Select ${mode==='both'?'✓':''}</button></div>
+        </div>
+        <div class="card" style="cursor:pointer;border:1px solid var(--magenta,#e040fb);padding:18px" onclick="showPage('upgrade')">
+          <div style="font-size:15px;font-weight:600;color:var(--magenta,#e040fb);margin-bottom:6px">${ICONS.upload} Moodle Upgrade</div>
+          <div style="font-size:12px;color:var(--muted);line-height:1.5">Automate single or multi-stage Moodle version upgrades. In-place, lift &amp; shift, or replica-first — with automatic version path calculation and rollback.</div>
+          <div style="margin-top:12px"><button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();showPage('upgrade')">Open Upgrade Manager ${ICONS.arrow}</button></div>
         </div>
       </div>
     </div>`;
@@ -3397,6 +3408,530 @@ async function previewSkillFile(){
 async function downloadSkillFile(){
   const base=document.getElementById('oc-base-url')?.value||window.location.origin;
   window.open(`/api/integrations/openclaw/skill-file/download?base_url=${encodeURIComponent(base)}`, '_blank');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── MOODLE UPGRADE MODULE ──
+// ═══════════════════════════════════════════════════════════════
+
+const UPGRADE_VERSIONS = ['4.1','4.2','4.3','4.4','4.5','5.0','5.1'];
+const UPGRADE_VERSION_REQS = {
+  '4.4': {php:'8.1.0', mariadb:'10.6.7', mysql:'8.0'},
+  '4.5': {php:'8.1.0', mariadb:'10.6.7', mysql:'8.0'},
+  '5.0': {php:'8.2.0', mariadb:'10.11.0', mysql:'8.4'},
+  '5.1': {php:'8.2.0', mariadb:'10.11.0', mysql:'8.4'},
+};
+
+let upgradeState = {
+  mode: 'in_place',
+  targetVersion: '5.1',
+  detectedVersion: null,
+  detectedPHP: null,
+  detectedDB: null,
+  detectedDBType: null,
+  stages: [],
+  stageStatuses: [],
+  currentStage: 0,
+  preflightResults: null,
+  preflightPassed: false,
+  upgradeStatus: 'idle',
+  errorMessage: null,
+  running: false,
+  logLines: [],
+  logEs: null,
+};
+
+function pageUpgrade() {
+  return `
+  <div class="page-header">
+    <div class="page-title">${ICONS.upload} Moodle Upgrade Manager</div>
+    <div class="page-sub">Automate version upgrades — in-place, lift &amp; shift, or replica-first with multi-stage path management</div>
+  </div>
+
+  <!-- Status Banner -->
+  <div id="upg-banner"></div>
+
+  <!-- Detection + Path Row -->
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:16px">
+    <div class="card" style="padding:16px">
+      <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Detected Version</div>
+      <div id="upg-detected-ver" style="font-size:22px;font-weight:700;color:var(--cyan);font-family:var(--mono)">—</div>
+      <div id="upg-detected-php" style="font-size:11px;color:var(--muted);margin-top:4px">PHP: — &nbsp;|&nbsp; DB: —</div>
+    </div>
+    <div class="card" style="padding:16px">
+      <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Target Version</div>
+      <select id="upg-target-ver" class="form-input" style="font-size:16px;font-weight:700;color:var(--magenta,#e040fb);background:transparent;border:none;padding:0;cursor:pointer" onchange="upgradeOnTargetChange()">
+        ${UPGRADE_VERSIONS.map(v=>`<option value="${v}" ${v==='5.1'?'selected':''}>${v}</option>`).join('')}
+      </select>
+      <div id="upg-target-reqs" style="font-size:11px;color:var(--muted);margin-top:4px">PHP 8.2+ &nbsp;|&nbsp; MariaDB 10.11+</div>
+    </div>
+    <div class="card" style="padding:16px">
+      <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Upgrade Path</div>
+      <div id="upg-path" style="font-size:13px;font-weight:600;color:var(--fg);font-family:var(--mono)">Detect source to compute</div>
+      <div id="upg-path-stages" style="font-size:11px;color:var(--muted);margin-top:4px"></div>
+    </div>
+  </div>
+
+  <!-- Mode Selection -->
+  <div class="panel" style="margin-bottom:16px">
+    <div class="panel-title" style="margin-bottom:12px">${ICONS.layers} Upgrade Mode</div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
+      <div id="upg-mode-inplace" class="card" style="cursor:pointer;padding:14px;border:2px solid var(--cyan)" onclick="upgradeSetMode('in_place')">
+        <div style="font-size:13px;font-weight:600;color:var(--cyan);margin-bottom:6px">${ICONS.zap} In-Place</div>
+        <div style="font-size:11px;color:var(--muted);line-height:1.5">Upgrade the existing server directly. Source server is modified.</div>
+        <div style="margin-top:8px;font-size:10px;color:var(--amber,#f59e0b)">⚠ Medium risk — production touched</div>
+      </div>
+      <div id="upg-mode-liftshift" class="card" style="cursor:pointer;padding:14px;border:1px solid var(--border)" onclick="upgradeSetMode('lift_and_shift')">
+        <div style="font-size:13px;font-weight:600;color:var(--magenta,#e040fb);margin-bottom:6px">${ICONS.layers} Lift &amp; Shift</div>
+        <div style="font-size:11px;color:var(--muted);line-height:1.5">Migrate to new server, upgrade there. Source never touched.</div>
+        <div style="margin-top:8px;font-size:10px;color:var(--green,#4ade80)">✓ Zero risk to source</div>
+      </div>
+      <div id="upg-mode-replica" class="card" style="cursor:pointer;padding:14px;border:1px solid var(--border)" onclick="upgradeSetMode('replica_first')">
+        <div style="font-size:13px;font-weight:600;color:var(--violet,#7c4dff);margin-bottom:6px">${ICONS.shield} Replica-First</div>
+        <div style="font-size:11px;color:var(--muted);line-height:1.5">Upgrade DR replica first, then failover. Uses existing replication.</div>
+        <div style="margin-top:8px;font-size:10px;color:var(--green,#4ade80)">✓ Zero risk to source</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Server Config -->
+  <div class="panel" style="margin-bottom:16px">
+    <div class="panel-title" style="margin-bottom:12px">${ICONS.database} Server Configuration</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <!-- Source -->
+      <div>
+        <div style="font-size:12px;color:var(--cyan);font-weight:600;margin-bottom:10px;text-transform:uppercase;letter-spacing:.06em">Source Server</div>
+        <div class="form-group"><label class="form-label">Host / IP</label><input id="upg-src-host" class="form-input" placeholder="192.168.1.100" /></div>
+        <div class="form-group"><label class="form-label">SSH User</label><input id="upg-src-user" class="form-input" value="root" /></div>
+        <div class="form-group"><label class="form-label">SSH Key Path</label><input id="upg-src-key" class="form-input" placeholder="/root/.ssh/id_ed25519" /></div>
+        <div class="form-group"><label class="form-label">Moodle Directory</label><input id="upg-src-dir" class="form-input" value="/var/www/html/moodle" /></div>
+        <button class="btn btn-ghost btn-sm" style="margin-top:4px" onclick="upgradeDetect('source')">${ICONS.zap} Detect Source Version</button>
+      </div>
+      <!-- Target (shown for lift_and_shift / replica_first) -->
+      <div id="upg-target-section">
+        <div style="font-size:12px;color:var(--magenta,#e040fb);font-weight:600;margin-bottom:10px;text-transform:uppercase;letter-spacing:.06em">Target Server</div>
+        <div class="form-group"><label class="form-label">Host / IP</label><input id="upg-tgt-host" class="form-input" placeholder="20.86.145.98" /></div>
+        <div class="form-group"><label class="form-label">SSH User</label><input id="upg-tgt-user" class="form-input" value="root" /></div>
+        <div class="form-group"><label class="form-label">SSH Key Path</label><input id="upg-tgt-key" class="form-input" placeholder="/root/.ssh/id_ed25519" /></div>
+        <div class="form-group"><label class="form-label">Moodle Directory</label><input id="upg-tgt-dir" class="form-input" value="/var/www/html/moodle" /></div>
+        <button class="btn btn-ghost btn-sm" style="margin-top:4px" onclick="upgradeDetect('target')">${ICONS.zap} Detect Target</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pre-flight Checks -->
+  <div class="panel" style="margin-bottom:16px">
+    <div class="flex-row between" style="margin-bottom:12px">
+      <div class="panel-title">${ICONS.shield} Pre-flight Checks</div>
+      <button class="btn btn-ghost btn-sm" id="upg-preflight-btn" onclick="upgradePreflight()">${ICONS.refresh} Run Checks</button>
+    </div>
+    <div id="upg-preflight-results">
+      <div class="empty-state" style="padding:20px 0">Run checks to verify server requirements before upgrading</div>
+    </div>
+  </div>
+
+  <!-- Upgrade Stages -->
+  <div class="panel" style="margin-bottom:16px">
+    <div class="flex-row between" style="margin-bottom:12px">
+      <div class="panel-title">${ICONS.layers} Upgrade Stages</div>
+      <div class="flex-row" style="gap:8px">
+        <button id="upg-resume-btn" class="btn btn-ghost btn-sm" style="display:none" onclick="upgradeResume()">${ICONS.refresh} Resume</button>
+        <button id="upg-rollback-btn" class="btn btn-ghost btn-sm" style="display:none" onclick="upgradeRollback()">${ICONS.alert} Rollback</button>
+        <button id="upg-start-btn" class="btn btn-primary btn-sm" disabled onclick="upgradeStart()">${ICONS.upload} Start Upgrade</button>
+      </div>
+    </div>
+    <div id="upg-stages">
+      <div class="empty-state" style="padding:20px 0">Detect source version to see upgrade stages</div>
+    </div>
+  </div>
+
+  <!-- Cutover (Lift & Shift / Replica-First) -->
+  <div id="upg-cutover-panel" class="panel" style="margin-bottom:16px;display:none">
+    <div class="panel-title" style="margin-bottom:12px">${ICONS.globe} Cutover</div>
+    <div class="banner banner-info" style="margin-bottom:12px">
+      <div class="banner-icon">${ICONS.zap}</div>
+      <div class="banner-text"><div class="banner-title">Upgrade complete — ready for cutover</div>
+      <div class="banner-body">Update DNS to point to the new server, then confirm cutover below to update config.php and Nginx.</div></div>
+    </div>
+    <div class="form-group"><label class="form-label">New wwwroot (e.g. https://lmsdr.agu.edu.bh)</label><input id="upg-wwwroot" class="form-input" placeholder="https://your-new-domain.com" /></div>
+    <div class="form-group"><label class="form-label">Nginx config path (optional — for 5.1 /public docroot fix)</label><input id="upg-nginx-conf" class="form-input" placeholder="/etc/nginx/sites-available/yourdomain.conf" /></div>
+    <button class="btn btn-primary" onclick="upgradeCutover()">${ICONS.arrow} Execute Cutover</button>
+  </div>
+
+  <!-- Live Log -->
+  <div class="panel">
+    <div class="flex-row between" style="margin-bottom:8px">
+      <div class="panel-title">${ICONS.terminal} Live Log</div>
+      <div class="flex-row" style="gap:8px">
+        <button class="btn btn-ghost btn-sm" onclick="upgradeClearLog()">Clear</button>
+        <button class="btn btn-ghost btn-sm" onclick="upgradeLoadLog()">${ICONS.refresh} Refresh</button>
+      </div>
+    </div>
+    <div id="upg-log" style="background:var(--bg);border:1px solid var(--glass-border);border-radius:8px;padding:12px;font-family:var(--mono);font-size:11px;color:var(--muted);min-height:160px;max-height:360px;overflow-y:auto;line-height:1.7">
+      <div style="color:var(--muted)">No log entries yet — start an upgrade to see output here.</div>
+    </div>
+  </div>`;
+}
+
+function upgradeSetMode(mode) {
+  upgradeState.mode = mode;
+  const modes = ['in_place','lift_and_shift','replica_first'];
+  const ids = ['upg-mode-inplace','upg-mode-liftshift','upg-mode-replica'];
+  const colors = ['var(--cyan)','var(--magenta,#e040fb)','var(--violet,#7c4dff)'];
+  modes.forEach((m,i) => {
+    const el = document.getElementById(ids[i]);
+    if (!el) return;
+    el.style.borderColor = m===mode ? colors[i] : 'var(--border)';
+    el.style.borderWidth = m===mode ? '2px' : '1px';
+  });
+  // Show/hide target section
+  const tgtSection = document.getElementById('upg-target-section');
+  if (tgtSection) tgtSection.style.display = mode==='in_place' ? 'none' : '';
+  upgradeComputePath();
+}
+
+function upgradeOnTargetChange() {
+  const sel = document.getElementById('upg-target-ver');
+  if (!sel) return;
+  upgradeState.targetVersion = sel.value;
+  const req = UPGRADE_VERSION_REQS[upgradeState.targetVersion] || {};
+  const reqEl = document.getElementById('upg-target-reqs');
+  if (reqEl) reqEl.textContent = req.php ? `PHP ${req.php}+  |  MariaDB ${req.mariadb}+` : '';
+  upgradeComputePath();
+}
+
+function upgradeComputePath() {
+  if (!upgradeState.detectedVersion) return;
+  const src = upgradeState.detectedVersion;
+  const tgt = upgradeState.targetVersion;
+  const pathEl = document.getElementById('upg-path');
+  const stagesEl = document.getElementById('upg-stages');
+  if (!pathEl) return;
+
+  // Simple client-side path calculation mirroring backend logic
+  const stages = [];
+  const srcMajMin = src.split('.').slice(0,2).map(Number);
+  const tgtMajMin = tgt.split('.').map(Number);
+
+  if (srcMajMin[0] < tgtMajMin[0] || (srcMajMin[0]===tgtMajMin[0] && srcMajMin[1] < tgtMajMin[1])) {
+    // Need waypoint 4.4 if source < 4.4 and target >= 5.x
+    if ((srcMajMin[0] < 4 || (srcMajMin[0]===4 && srcMajMin[1] < 4)) && tgtMajMin[0] >= 5) {
+      stages.push({from: srcMajMin.join('.'), to:'4.4', label:`${src.split('.').slice(0,2).join('.')} → 4.4 (waypoint)`});
+      stages.push({from:'4.4', to: tgt, label:`4.4 → ${tgt}`});
+    } else {
+      stages.push({from: srcMajMin.join('.'), to: tgt, label:`${src.split('.').slice(0,2).join('.')} → ${tgt}`});
+    }
+  }
+
+  upgradeState.stages = stages;
+  pathEl.textContent = stages.length === 0 ? 'Already at target' : stages.map(s=>s.to).join(' → ');
+  const stagesSubEl = document.getElementById('upg-path-stages');
+  if (stagesSubEl) stagesSubEl.textContent = `${stages.length} stage${stages.length!==1?'s':''}`;
+
+  if (stagesEl) {
+    if (stages.length === 0) {
+      stagesEl.innerHTML = '<div class="empty-state">Already at target version — no upgrade needed.</div>';
+    } else {
+      stagesEl.innerHTML = stages.map((s,i) => {
+        const st = upgradeState.stageStatuses[i] || 'pending';
+        const stColor = {completed:'var(--green,#4ade80)',running:'var(--cyan)',failed:'var(--red,#f87171)',pending:'var(--muted)'}[st];
+        const stLabel = {completed:'✓ Completed',running:'⟳ Running',failed:'✗ Failed',pending:'○ Pending'}[st];
+        return `<div style="display:flex;align-items:center;gap:12px;padding:10px 12px;background:var(--glass-1);border-radius:8px;margin-bottom:8px">
+          <div style="font-size:11px;color:var(--muted);min-width:64px">Stage ${i+1}</div>
+          <div style="flex:1;font-family:var(--mono);font-size:13px;color:var(--fg)">${s.label}</div>
+          <div style="font-size:12px;color:${stColor};font-weight:600">${stLabel}</div>
+        </div>`;
+      }).join('');
+    }
+  }
+}
+
+async function upgradeDetect(role) {
+  const host = role==='source' ? document.getElementById('upg-src-host')?.value : document.getElementById('upg-tgt-host')?.value;
+  const user = role==='source' ? document.getElementById('upg-src-user')?.value : document.getElementById('upg-tgt-user')?.value;
+  const key  = role==='source' ? document.getElementById('upg-src-key')?.value  : document.getElementById('upg-tgt-key')?.value;
+  const dir  = role==='source' ? document.getElementById('upg-src-dir')?.value  : document.getElementById('upg-tgt-dir')?.value;
+  if (!host) { alert('Enter host/IP first'); return; }
+  upgradeBanner('info', `Detecting ${role} server...`);
+  try {
+    const r = await apiPost('/api/upgrade/detect', {host, user:user||'root', key:key||null, moodle_dir:dir||'/var/www/html/moodle', role});
+    const det = r.detected || {};
+    if (role === 'source') {
+      upgradeState.detectedVersion = det.moodle_version || null;
+      upgradeState.detectedPHP     = det.php_version    || null;
+      upgradeState.detectedDB      = det.db_version     || null;
+      upgradeState.detectedDBType  = det.db_type        || null;
+      const verEl = document.getElementById('upg-detected-ver');
+      const phpEl = document.getElementById('upg-detected-php');
+      if (verEl) verEl.textContent = det.moodle_version || 'Unknown';
+      if (phpEl) phpEl.textContent = `PHP: ${det.php_version||'?'}  |  ${det.db_type||'DB'}: ${det.db_version||'?'}`;
+      upgradeComputePath();
+      upgradeBanner('ok', `Source detected: Moodle ${det.moodle_version||'?'} | PHP ${det.php_version||'?'} | ${det.db_type||'DB'} ${det.db_version||'?'}`);
+    } else {
+      upgradeBanner('ok', `Target detected: ${det.config_found ? 'Moodle found' : 'No Moodle yet'} | ${det.disk_free_gb||0} GB free`);
+    }
+  } catch(e) {
+    upgradeBanner('error', `Detection failed: ${e.message||e}`);
+  }
+}
+
+async function upgradePreflight() {
+  const payload = upgradeCollectPayload();
+  const btn = document.getElementById('upg-preflight-btn');
+  if (btn) btn.disabled = true;
+  upgradeBanner('info','Running pre-flight checks...');
+  try {
+    const r = await apiPost('/api/upgrade/preflight', payload);
+    upgradeState.preflightResults = r.checks;
+    upgradeState.preflightPassed  = r.all_pass;
+    renderPreflightResults(r);
+    const startBtn = document.getElementById('upg-start-btn');
+    if (startBtn) startBtn.disabled = !r.all_pass;
+    upgradeBanner(r.all_pass?'ok':'warn', r.all_pass?'All checks passed — ready to upgrade':'Some checks failed — resolve issues before upgrading');
+  } catch(e) {
+    upgradeBanner('error',`Preflight error: ${e.message||e}`);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function renderPreflightResults(r) {
+  const el = document.getElementById('upg-preflight-results');
+  if (!el) return;
+  const checks = r.checks || {};
+  if (!Object.keys(checks).length) { el.innerHTML='<div class="empty-state">No checks returned</div>'; return; }
+  el.innerHTML = Object.entries(checks).map(([k,c])=>{
+    const icon = c.pass ? `<span style="color:var(--green,#4ade80)">✓</span>` : `<span style="color:var(--red,#f87171)">✗</span>`;
+    return `<div style="display:flex;align-items:center;gap:10px;padding:8px 10px;margin-bottom:4px;background:var(--glass-1);border-radius:6px">
+      <div style="width:20px">${icon}</div>
+      <div style="flex:1;font-size:12px;color:${c.pass?'var(--fg)':'var(--red,#f87171)'}">${escHtml(c.label||k)}</div>
+      ${c.detail?`<div style="font-size:11px;color:var(--muted)">${escHtml(c.detail)}</div>`:''}
+    </div>`;
+  }).join('');
+}
+
+async function upgradeStart() {
+  if (!confirm(`Start Moodle upgrade (${upgradeState.mode.replace('_',' ')}) → ${upgradeState.targetVersion}? This may take 10–30 minutes per stage.`)) return;
+  const payload = { ...upgradeCollectPayload(), resume: false };
+  upgradeBanner('info','Starting upgrade...');
+  try {
+    const r = await apiPost('/api/upgrade/start', payload);
+    if (!r.ok) { upgradeBanner('error', r.error||'Start failed'); return; }
+    upgradeState.running = true;
+    upgradeBanner('ok','Upgrade started — watch the live log below');
+    upgradeStartLogStream();
+    upgradeStartStatusPoll();
+    document.getElementById('upg-start-btn').disabled = true;
+    document.getElementById('upg-rollback-btn').style.display = '';
+  } catch(e) {
+    upgradeBanner('error',`Start error: ${e.message||e}`);
+  }
+}
+
+async function upgradeResume() {
+  const payload = { ...upgradeCollectPayload(), resume: true };
+  upgradeBanner('info','Resuming upgrade...');
+  try {
+    const r = await apiPost('/api/upgrade/start', payload);
+    if (!r.ok) { upgradeBanner('error', r.error||'Resume failed'); return; }
+    upgradeState.running = true;
+    upgradeBanner('ok','Upgrade resumed');
+    upgradeStartLogStream();
+    upgradeStartStatusPoll();
+    document.getElementById('upg-resume-btn').style.display = 'none';
+    document.getElementById('upg-rollback-btn').style.display = '';
+  } catch(e) {
+    upgradeBanner('error',`Resume error: ${e.message||e}`);
+  }
+}
+
+async function upgradeRollback() {
+  if (!confirm('Rollback to pre-upgrade backup? This will restore code and database.')) return;
+  upgradeBanner('warn','Rolling back...');
+  try {
+    const r = await apiPost('/api/upgrade/rollback', {});
+    upgradeBanner(r.ok?'ok':'error', r.message||r.error||'Rollback done');
+    upgradeLoadLog();
+  } catch(e) {
+    upgradeBanner('error',`Rollback error: ${e.message||e}`);
+  }
+}
+
+async function upgradeCutover() {
+  const wwwroot = document.getElementById('upg-wwwroot')?.value;
+  const nginxConf = document.getElementById('upg-nginx-conf')?.value;
+  if (!wwwroot) { alert('Enter new wwwroot'); return; }
+  if (!confirm(`Execute cutover to ${wwwroot}? This updates config.php and Nginx on the target server.`)) return;
+  upgradeBanner('info','Executing cutover...');
+  try {
+    const r = await apiPost('/api/upgrade/cutover', {new_wwwroot:wwwroot, nginx_conf_path:nginxConf||null, update_nginx_docroot:true});
+    upgradeBanner(r.ok?'ok':'error', r.message||r.error);
+    upgradeLoadLog();
+  } catch(e) {
+    upgradeBanner('error',`Cutover error: ${e.message||e}`);
+  }
+}
+
+function upgradeCollectPayload() {
+  return {
+    mode: upgradeState.mode,
+    target_version: upgradeState.targetVersion,
+    source_host: document.getElementById('upg-src-host')?.value || null,
+    source_user: document.getElementById('upg-src-user')?.value || 'root',
+    source_key:  document.getElementById('upg-src-key')?.value  || null,
+    source_moodle_dir: document.getElementById('upg-src-dir')?.value || '/var/www/html/moodle',
+    target_host: document.getElementById('upg-tgt-host')?.value || null,
+    target_user: document.getElementById('upg-tgt-user')?.value || 'root',
+    target_key:  document.getElementById('upg-tgt-key')?.value  || null,
+    target_moodle_dir: document.getElementById('upg-tgt-dir')?.value || '/var/www/html/moodle',
+  };
+}
+
+function upgradeStartLogStream() {
+  if (upgradeState.logEs) { upgradeState.logEs.close(); }
+  const logEl = document.getElementById('upg-log');
+  if (!logEl) return;
+  const es = new EventSource('/api/upgrade/log');
+  upgradeState.logEs = es;
+  es.onmessage = (e) => {
+    if (!e.data || e.data==='No log available') return;
+    upgradeState.logLines.push(e.data);
+    if (upgradeState.logLines.length > 500) upgradeState.logLines.shift();
+    logEl.innerHTML = upgradeState.logLines.map(l => `<div>${escHtml(l)}</div>`).join('');
+    logEl.scrollTop = logEl.scrollHeight;
+  };
+  es.onerror = () => es.close();
+}
+
+let _upgStatusInterval = null;
+function upgradeStartStatusPoll() {
+  if (_upgStatusInterval) clearInterval(_upgStatusInterval);
+  _upgStatusInterval = setInterval(async () => {
+    try {
+      const r = await apiGet('/api/upgrade/status');
+      const st = r.state || {};
+      upgradeState.running = r.running;
+      upgradeState.stageStatuses = st.stage_statuses || [];
+      upgradeState.currentStage  = st.current_stage_index || 0;
+      upgradeState.upgradeStatus = st.upgrade_status || 'idle';
+      upgradeState.errorMessage  = st.error_message || null;
+      upgradeComputePath();
+      // Show/hide cutover panel
+      const mode = st.mode || upgradeState.mode;
+      const cutPanel = document.getElementById('upg-cutover-panel');
+      if (cutPanel) cutPanel.style.display = (st.upgrade_status==='completed' && mode!=='in_place') ? '' : 'none';
+      // Resume button
+      const resumeBtn = document.getElementById('upg-resume-btn');
+      if (resumeBtn) resumeBtn.style.display = st.upgrade_status==='failed' ? '' : 'none';
+      if (!r.running && (st.upgrade_status==='completed'||st.upgrade_status==='failed'||st.upgrade_status==='rolled_back')) {
+        clearInterval(_upgStatusInterval);
+        upgradeState.running = false;
+        if (upgradeState.logEs) { upgradeState.logEs.close(); upgradeState.logEs = null; }
+      }
+      if (st.upgrade_status==='failed' && st.error_message) upgradeBanner('error', st.error_message);
+      if (st.upgrade_status==='completed') upgradeBanner('ok','All upgrade stages completed successfully!');
+    } catch(e) {}
+  }, 3000);
+}
+
+async function upgradeLoadLog() {
+  try {
+    const r = await apiGet('/api/upgrade/log/full');
+    const lines = r.log || [];
+    upgradeState.logLines = lines;
+    const logEl = document.getElementById('upg-log');
+    if (logEl) {
+      logEl.innerHTML = lines.length ? lines.map(l=>`<div>${escHtml(l)}</div>`).join('') : '<div style="color:var(--muted)">No log entries yet.</div>';
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+  } catch(e) {}
+}
+
+function upgradeClearLog() {
+  upgradeState.logLines = [];
+  const logEl = document.getElementById('upg-log');
+  if (logEl) logEl.innerHTML = '<div style="color:var(--muted)">Log cleared.</div>';
+}
+
+function upgradeBanner(type, msg) {
+  const el = document.getElementById('upg-banner');
+  if (!el) return;
+  const colors = {ok:'var(--green,#4ade80)',error:'var(--red,#f87171)',warn:'var(--amber,#f59e0b)',info:'var(--cyan)'};
+  const icons  = {ok:ICONS.shield,error:ICONS.alert,warn:ICONS.alert,info:ICONS.zap};
+  el.innerHTML = `<div class="banner" style="margin-bottom:14px;border-left:3px solid ${colors[type]||colors.info}">
+    <div class="banner-icon" style="color:${colors[type]||colors.info}">${icons[type]||ICONS.zap}</div>
+    <div class="banner-text"><div class="banner-body">${escHtml(msg)}</div></div>
+  </div>`;
+}
+
+async function initUpgrade() {
+  // Load persisted state from backend
+  try {
+    const r = await apiGet('/api/upgrade/status');
+    const st = r.state || {};
+    if (st.detected_version)  upgradeState.detectedVersion = st.detected_version;
+    if (st.detected_php)      upgradeState.detectedPHP     = st.detected_php;
+    if (st.detected_db)       upgradeState.detectedDB      = st.detected_db;
+    if (st.detected_db_type)  upgradeState.detectedDBType  = st.detected_db_type;
+    if (st.target_version)    upgradeState.targetVersion   = st.target_version;
+    if (st.mode)              upgradeState.mode            = st.mode;
+    upgradeState.stageStatuses = st.stage_statuses || [];
+    upgradeState.upgradeStatus = st.upgrade_status || 'idle';
+    upgradeState.errorMessage  = st.error_message  || null;
+    upgradeState.running       = r.running;
+
+    // Restore UI state
+    if (upgradeState.detectedVersion) {
+      const verEl = document.getElementById('upg-detected-ver');
+      const phpEl = document.getElementById('upg-detected-php');
+      if (verEl) verEl.textContent = upgradeState.detectedVersion;
+      if (phpEl) phpEl.textContent = `PHP: ${upgradeState.detectedPHP||'?'}  |  ${upgradeState.detectedDBType||'DB'}: ${upgradeState.detectedDB||'?'}`;
+    }
+    const sel = document.getElementById('upg-target-ver');
+    if (sel && upgradeState.targetVersion) sel.value = upgradeState.targetVersion;
+    if (upgradeState.mode) upgradeSetMode(upgradeState.mode);
+
+    // Restore source host
+    if (st.source_host) { const e=document.getElementById('upg-src-host'); if(e) e.value=st.source_host; }
+    if (st.source_user) { const e=document.getElementById('upg-src-user'); if(e) e.value=st.source_user; }
+    if (st.source_key)  { const e=document.getElementById('upg-src-key');  if(e) e.value=st.source_key; }
+    if (st.source_moodle_dir) { const e=document.getElementById('upg-src-dir'); if(e) e.value=st.source_moodle_dir; }
+    if (st.target_host) { const e=document.getElementById('upg-tgt-host'); if(e) e.value=st.target_host; }
+    if (st.target_user) { const e=document.getElementById('upg-tgt-user'); if(e) e.value=st.target_user; }
+    if (st.target_key)  { const e=document.getElementById('upg-tgt-key');  if(e) e.value=st.target_key; }
+    if (st.target_moodle_dir) { const e=document.getElementById('upg-tgt-dir'); if(e) e.value=st.target_moodle_dir; }
+
+    upgradeOnTargetChange();
+    upgradeComputePath();
+
+    // Show preflight results if available
+    if (st.preflight_results && Object.keys(st.preflight_results.checks||{}).length) {
+      renderPreflightResults(st.preflight_results);
+    }
+
+    // Re-enable start button if preflight passed
+    const startBtn = document.getElementById('upg-start-btn');
+    if (startBtn) startBtn.disabled = !st.preflight_passed;
+
+    // Show resume if previous run failed
+    const resumeBtn = document.getElementById('upg-resume-btn');
+    if (resumeBtn) resumeBtn.style.display = st.upgrade_status==='failed' ? '' : 'none';
+
+    // Show cutover panel if completed and not in_place
+    const cutPanel = document.getElementById('upg-cutover-panel');
+    if (cutPanel) cutPanel.style.display = (st.upgrade_status==='completed' && st.mode!=='in_place') ? '' : 'none';
+
+    // If running, reconnect log stream and status poll
+    if (r.running) {
+      upgradeStartLogStream();
+      upgradeStartStatusPoll();
+    } else {
+      upgradeLoadLog();
+    }
+
+    if (st.upgrade_status==='failed' && st.error_message) upgradeBanner('error', st.error_message);
+    if (st.upgrade_status==='completed') upgradeBanner('ok','Previous upgrade completed successfully.');
+  } catch(e) {}
 }
 
 // ═══════════════════════════════════════════════════════════════
