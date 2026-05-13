@@ -1117,7 +1117,15 @@ async def _run_seed_job():
                 )
                 # ── Step A: update the sudoers file via admmoodle (has full sudo) ──
                 # This ensures moodlesync can run mysql/mariadb via sudo going forward.
-                admin_user = getattr(state, 'ADMIN_VM_USER', 'admmoodle')
+                # Resolve admin user + key from config — never fall back to a hardcoded default
+                _cfg_pf = db_db.get_raw_db_config() or {}
+                admin_user = (_cfg_pf.get("admin_ssh_user") or "").strip()
+                if not admin_user:
+                    raise Exception(
+                        "Pre-flight auto-fix aborted: admin_ssh_user is not configured. "
+                        "Set it in DB Replication Settings before seeding."
+                    )
+                admin_key = (_cfg_pf.get("admin_ssh_key_path") or "").strip() or state.SSH_KEY_PATH
                 sudoers_rule = SUDOERS_RULE.format(user=state.AZURE_VM_USER)
                 sudoers_b64 = base64.b64encode(sudoers_rule.encode()).decode()
                 sudoers_cmd = (
@@ -1125,7 +1133,7 @@ async def _run_seed_job():
                     f"sudo chmod 440 {SUDOERS_FILE} && sudo visudo -c -f {SUDOERS_FILE} && echo sudoers_ok"
                 )
                 sud_proc = await asyncio.create_subprocess_exec(
-                    "ssh", "-i", state.SSH_KEY_PATH,
+                    "ssh", "-i", admin_key,
                     "-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes",
                     f"{admin_user}@{replica_host}", sudoers_cmd,
                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
@@ -1152,7 +1160,7 @@ async def _run_seed_job():
                     f"EC=$?; rm -f /tmp/.mdr_grant.sql; exit $EC"
                 )
                 fix_proc = await asyncio.create_subprocess_exec(
-                    "ssh", "-i", state.SSH_KEY_PATH,
+                    "ssh", "-i", admin_key,
                     "-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes",
                     f"{admin_user}@{replica_host}", grant_cmd,
                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
@@ -1218,6 +1226,18 @@ async def _seed_mysqldump(cfg: dict, db_name: str, skip_dump: bool = False):
     replica_host = (cfg.get("replica_host") or "")
     replica_user = (cfg.get("replica_db_user") or "root")
     replica_pass = (cfg.get("replica_db_password") or "")
+
+    # ── Admin SSH credentials — always from user-configured values, never hardcoded ──
+    # admin_ssh_user must be a sudo-capable account on the replica (e.g. azureuser, ubuntu).
+    # admin_ssh_key_path is optional; falls back to the sync key if not separately configured.
+    admin_user = (cfg.get("admin_ssh_user") or "").strip()
+    admin_key   = (cfg.get("admin_ssh_key_path") or "").strip() or state.SSH_KEY_PATH
+    if not admin_user:
+        raise Exception(
+            "Admin SSH User is not configured. "
+            "Go to DB Settings and set 'Admin SSH User' to a sudo-capable account on the replica "
+            "(e.g. azureuser, ubuntu, root). This account is required for pre-import optimizations."
+        )
 
     # Fixed remote dump path — consistent so resume detection always finds it
     REPLICA_DUMP = "/tmp/moodle_seed.sql"
@@ -1302,21 +1322,65 @@ async def _seed_mysqldump(cfg: dict, db_name: str, skip_dump: bool = False):
             state.db_seed_job["phase"] = "transferring"
             state.db_seed_job["output"].append(f"Dump complete: {size_human} — transferring to replica...")
 
-            # ── SCP dump file to replica ──────────────────────────────────────────
-            scp_cmd = [
-                "scp",
-                "-i", state.SSH_KEY_PATH,
-                "-o", "StrictHostKeyChecking=accept-new",
-                "-o", "BatchMode=yes",
-                "-o", "ConnectTimeout=30",
+            # ── rsync dump file to replica (resume-capable, compressed, progress) ──
+            # Uses rsync instead of SCP so that interrupted transfers resume from
+            # where they left off — critical for large dumps over WAN.
+            # --partial keeps the incomplete file on the replica between attempts.
+            # --compress reduces WAN bandwidth (SQL text compresses ~70-80%).
+            # --progress2 feeds real-time transfer rate into the log.
+            state.db_seed_job["output"].append(
+                f"Transferring dump to replica via rsync (resume-capable, compressed)..."
+            )
+            rsync_transfer_cmd = [
+                "rsync",
+                "-az",                         # archive + gzip compression
+                "--partial",                    # keep partial file on failure
+                "--partial-dir=.rsync-partial", # store partial in hidden dir
+                "--info=progress2",             # live throughput stats
+                "--timeout=600",               # 10-min idle timeout
+                "-e", (
+                    f"ssh -i {state.SSH_KEY_PATH}"
+                    f" -o StrictHostKeyChecking=accept-new"
+                    f" -o BatchMode=yes"
+                    f" -o ConnectTimeout=30"
+                    f" -o ServerAliveInterval=30"
+                ),
                 str(dump_file),
-                f"moodlesync@{replica_host}:{REPLICA_DUMP}"
+                f"{state.AZURE_VM_USER}@{replica_host}:{REPLICA_DUMP}",
             ]
-            scp_proc = await asyncio.create_subprocess_exec(*scp_cmd,
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-            _, scp_err = await scp_proc.communicate()
-            if scp_proc.returncode != 0:
-                raise Exception(f"SCP failed: {scp_err.decode(errors='replace')[:300]}")
+            rsync_xfer_proc = await asyncio.create_subprocess_exec(
+                *rsync_transfer_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+            # Stream rsync output to seed job log so transfer progress is visible
+            async for raw_line in rsync_xfer_proc.stdout:
+                line = raw_line.decode(errors="replace").strip()
+                if not line:
+                    continue
+                state.db_seed_job["output"].append(line)
+                if len(state.db_seed_job["output"]) > 400:
+                    state.db_seed_job["output"] = state.db_seed_job["output"][-400:]
+                # Parse transfer speed / progress from rsync --info=progress2
+                # Example line: "  123,456,789  45%   12.34MB/s    0:02:34"
+                if "%" in line:
+                    for part in line.split():
+                        if part.endswith("%"):
+                            try:
+                                pct = int(part.rstrip("%"))
+                                # Map 40-60 range to transfer phase
+                                state.db_seed_job["progress"] = 40 + int(pct * 0.20)
+                            except ValueError:
+                                pass
+                        if "/s" in part and not part.startswith("-"):
+                            state.db_seed_job["speed"] = part
+            await rsync_xfer_proc.wait()
+            if rsync_xfer_proc.returncode != 0:
+                raise Exception(
+                    f"rsync transfer failed (exit {rsync_xfer_proc.returncode}). "
+                    f"Check SSH key and replica connectivity. "
+                    f"Re-running will resume from where it stopped."
+                )
 
         # ── Import phase (always runs — fresh or resume) ───────────────────────
         state.db_seed_job["progress"] = 65
@@ -1346,8 +1410,7 @@ async def _seed_mysqldump(cfg: dict, db_name: str, skip_dump: bool = False):
 
         # ── Pre-import: tune MariaDB for bulk load speed ────────────────────
         # Disabling binlog + relaxing InnoDB flush cuts import time by ~60-70%.
-        # We use sudo mariadb (admmoodle) to set GLOBAL vars — moodlesync can't.
-        admin_user = getattr(state, 'ADMIN_VM_USER', 'admmoodle')
+        # Uses admin_user + admin_key resolved from cfg at function entry — never hardcoded.
         perf_sql = (
             "SET GLOBAL sql_log_bin = 0; "
             "SET GLOBAL innodb_flush_log_at_trx_commit = 2; "
@@ -1358,7 +1421,7 @@ async def _seed_mysqldump(cfg: dict, db_name: str, skip_dump: bool = False):
         )
         perf_b64 = base64.b64encode(perf_sql.encode()).decode()
         perf_cmd = [
-            "ssh", "-i", state.SSH_KEY_PATH,
+            "ssh", "-i", admin_key,
             "-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes",
             f"{admin_user}@{replica_host}",
             f"echo '{perf_b64}' | base64 -d | sudo mariadb 2>/dev/null || "
@@ -1488,7 +1551,7 @@ async def _seed_mysqldump(cfg: dict, db_name: str, skip_dump: bool = False):
         )
         restore_b64 = base64.b64encode(restore_sql.encode()).decode()
         restore_proc = await asyncio.create_subprocess_exec(
-            "ssh", "-i", state.SSH_KEY_PATH,
+            "ssh", "-i", admin_key,
             "-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes",
             f"{admin_user}@{replica_host}",
             f"echo '{restore_b64}' | base64 -d | sudo mariadb 2>/dev/null || "

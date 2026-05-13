@@ -213,6 +213,7 @@ def save_setup_config(body: dict):
         "repl_user", "repl_password", "source_db_user", "source_db_password",
         "replica_db_user", "replica_db_password", "moodle_db_name",
         "ssl_ca_path", "ssl_cert_path", "ssl_key_path", "seed_method",
+        "admin_ssh_user", "admin_ssh_key_path",
     ]
     db_cfg = {k: body[k] for k in db_fields if k in body}
 
@@ -235,6 +236,9 @@ def save_setup_config(body: dict):
         try:
             import db_replication_db
             db_replication_db.save_db_config(db_cfg)
+            # Keep in-memory state in sync immediately (no restart needed)
+            if db_cfg.get("admin_ssh_user"):
+                state.ADMIN_VM_USER = db_cfg["admin_ssh_user"]
         except Exception as e:
             return {"ok": False, "error": f"DB config save failed: {e}"}
 

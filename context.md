@@ -1,8 +1,8 @@
 # Moodle DR — Project Context for Claude Code
 
-> **Last updated:** 2026-05-12  
-> **Session:** Moodle Upgrade Module planning + build  
-> **Pick up from:** Moodle Upgrade module — backend `upgrade.py` + frontend `pageUpgrade()` built and committed. See "Current State" below.
+> **Last updated:** 2026-05-13  
+> **Session:** Transfer phase hardening + admin user dynamic config  
+> **Pick up from:** Transfer phase 2 SCP→rsync done, admin SSH user/key fields fully dynamic (no hardcoded defaults). See "Transfer Phase Logic" and "Admin SSH Fields" sections below.
 
 ---
 
@@ -365,11 +365,74 @@ Added to setup wizard welcome screen grid:
 
 ---
 
-## Commit History (Upgrade Module)
+## Transfer Phase Logic (Current State)
+
+### Phase 1 — DUMP
+- `mysqldump` streamed in 1 MB chunks to local `/tmp/moodle_seed_<ts>.sql`
+- Detects MariaDB vs MySQL dynamically at runtime (never assumes engine)
+
+### Phase 2 — TRANSFER
+- **Uses rsync** (not SCP) with flags: `-az --partial --partial-dir=.rsync-partial --info=progress2 --timeout=600`
+- Resume-capable: interrupted transfers resume from last good byte
+- gzip compression (~70-80% bandwidth saving on SQL text)
+- Live progress streamed to seed job output log
+- Auth: `state.AZURE_VM_USER` (moodlesync) + `state.SSH_KEY_PATH`
+
+### Phase 3 — IMPORT
+- SSH to replica, `pv | mysql` with `--init-command` for session-level optimizations
+- Progress polled every 10s from `/tmp/.mdr_import_pct`
+
+### Smart Resume
+- Checks `/tmp/moodle_seed.sql` on replica before starting
+- If non-zero file exists: skips dump+transfer, jumps directly to import at 65%
+
+---
+
+## Admin SSH Fields (Current State)
+
+### New Config Field: `admin_ssh_key_path`
+
+- Added to `db_replication_db.py` schema (column `admin_ssh_key_path TEXT DEFAULT ''`)
+- Persists alongside `admin_ssh_user` in the same SQLite config row
+- Falls back to `state.SSH_KEY_PATH` (the sync key) if left blank
+
+### No More Hardcoded `admmoodle`
+
+**Rule: Zero hardcoded admin user defaults anywhere in the codebase.**
+
+| Location | Old (BAD) | New (CORRECT) |
+|---|---|---|
+| `_seed_mysqldump()` top | `getattr(state, 'ADMIN_VM_USER', 'admmoodle')` | `cfg.get("admin_ssh_user")` — raises Exception if empty |
+| `_run_seed_job` preflight (line ~1120) | `getattr(state, 'ADMIN_VM_USER', 'admmoodle')` | `db_db.get_raw_db_config().get("admin_ssh_user")` — raises Exception if empty |
+| `saveDbSettings()` JS body | `g('dbs-adminuser') \|\| 'admmoodle'` | `g('dbs-adminuser')` — no fallback |
+
+If `admin_ssh_user` is empty at runtime, the app raises a descriptive error: _"admin_ssh_user is not configured. Set it in DB Replication Settings before seeding."_
+
+### Frontend Fields Added
+
+**DB Settings page** (`pageDbSettings()` → form ID prefix `dbs-`):
+- `dbs-adminuser` — Admin SSH User (existed before)
+- `dbs-adminkey` — Admin SSH Key Path (NEW, placeholder: `/root/.ssh/admin_key`)
+- Both loaded in `initDbSettings()` from `/api/db/config`
+- Both saved in `saveDbSettings()` body dict
+
+**Setup Wizard** (`pageSrvDetails()` → form ID prefix `d-`):
+- `d-adminuser` — Admin SSH User (existed before, default value removed)
+- `d-adminkey` — Admin SSH Key Path (NEW)
+- Both loaded in `initSrvDetails()` from `/api/setup/config`
+- Both saved in `saveSrvDetails()` body dict
+- `setup.py` `db_fields` list now includes `admin_ssh_user` and `admin_ssh_key_path`
+- State sync: `state.ADMIN_VM_USER` updated immediately on save in both `setup.py` and `db_replication.py`
+
+---
+
+## Commit History
 
 | Commit | Description |
 |---|---|
-| TBD | Initial Moodle Upgrade module — backend upgrade.py + frontend pageUpgrade() + welcome card |
+| TBD (2026-05-13) | Transfer fixes: SCP→rsync, admin user/key fully dynamic, frontend admin key fields |
+| 2a3832a | Moodle Upgrade module — backend upgrade.py + frontend pageUpgrade() + welcome card |
+| 6e0d6f0 | Glassmorphism UI revamp |
 
 ---
 
