@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Moodle DR — Welcome</title>
+<link rel="preconnect" href="https://api.fontshare.com" crossorigin />
+<link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,600,700&f[]=jet-brains-mono@400&display=swap" rel="stylesheet" />
+<style>
+  /* ── Reset ── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; font-family: 'Satoshi', system-ui, sans-serif; background: #07090f; color: #e2e8f0; overflow: hidden; }
+
+  /* ── Design tokens ── */
+  :root {
+    --bg: #07090f;
+    --cyan: #00d4c8;
+    --magenta: #e040fb;
+    --violet: #7c4dff;
+    --cyan-dim: rgba(0,212,200,0.08);
+    --cyan-bd: rgba(0,212,200,0.25);
+    --magenta-dim: rgba(224,64,251,0.08);
+    --violet-dim: rgba(124,77,255,0.08);
+    --text: #f1f5f9;
+    --text2: #94a3b8;
+    --text3: #64748b;
+    --glass: rgba(255,255,255,0.04);
+    --glass-border: rgba(255,255,255,0.08);
+    --r: 8px;
+    --r2: 12px;
+    --r3: 16px;
+  }
+
+  /* ── Full-screen container ── */
+  #wn-root {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── Background canvas ── */
+  #wn-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+  }
+
+  /* ── Ambient gradient blobs ── */
+  .wn-blob {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(120px);
+    opacity: 0.18;
+    pointer-events: none;
+    animation: blobPulse 8s ease-in-out infinite alternate;
+  }
+  .wn-blob-1 { width: 600px; height: 600px; background: radial-gradient(circle, #00d4c8, transparent 70%); top: -150px; left: -100px; animation-delay: 0s; }
+  .wn-blob-2 { width: 500px; height: 500px; background: radial-gradient(circle, #e040fb, transparent 70%); bottom: -100px; right: -80px; animation-delay: 3s; }
+  .wn-blob-3 { width: 400px; height: 400px; background: radial-gradient(circle, #7c4dff, transparent 70%); top: 40%; left: 50%; transform: translate(-50%,-50%); animation-delay: 1.5s; }
+  @keyframes blobPulse { 0% { opacity: 0.12; transform: scale(1); } 100% { opacity: 0.22; transform: scale(1.08); } }
+  .wn-blob-3 { animation: blobPulse3 8s ease-in-out infinite alternate; }
+  @keyframes blobPulse3 { 0% { opacity: 0.12; transform: translate(-50%,-50%) scale(1); } 100% { opacity: 0.2; transform: translate(-50%,-50%) scale(1.1); } }
+
+  /* ── Noise overlay ── */
+  .wn-noise {
+    position: absolute;
+    inset: 0;
+    opacity: 0.4;
+    mix-blend-mode: overlay;
+    pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='1'/%3E%3C/svg%3E");
+    background-size: 200px 200px;
+  }
+
+  /* ── Grid lines overlay ── */
+  .wn-grid {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+    background-size: 64px 64px;
+    mask-image: radial-gradient(ellipse 80% 80% at 50% 50%, black 30%, transparent 100%);
+  }
+
+  /* ── Top navbar ── */
+  #wn-nav {
+    position: relative;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20px 40px;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    background: rgba(7,9,15,0.6);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    flex-shrink: 0;
+    animation: fadeDown 0.7s ease both;
+  }
+  @keyframes fadeDown { from { opacity: 0; transform: translateY(-12px); } to { opacity: 1; transform: translateY(0); } }
+
+  .wn-nav-logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.02em;
+  }
+  .wn-nav-logo .logo-icon {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, rgba(0,212,200,0.25), rgba(124,77,255,0.2));
+    border: 1px solid rgba(0,212,200,0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .wn-nav-links {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .wn-nav-link {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text3);
+    padding: 6px 14px;
+    border-radius: 20px;
+    cursor: pointer;
+    transition: color 0.2s, background 0.2s;
+    border: none;
+    background: transparent;
+    font-family: inherit;
+  }
+  .wn-nav-link:hover { color: var(--text2); background: rgba(255,255,255,0.05); }
+  .wn-nav-cta {
+    font-size: 12px;
+    font-weight: 600;
+    color: #07090f;
+    padding: 8px 20px;
+    border-radius: 20px;
+    background: var(--cyan);
+    border: none;
+    cursor: pointer;
+    font-family: inherit;
+    transition: opacity 0.2s, transform 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .wn-nav-cta:hover { opacity: 0.88; transform: translateY(-1px); }
+  @media (max-width: 640px) {
+    #wn-nav { padding: 14px 20px; }
+    .wn-nav-links { display: none; }
+  }
+
+  /* ── Hero body ── */
+  #wn-body {
+    position: relative;
+    z-index: 10;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 0 24px 24px;
+    overflow: hidden;
+  }
+
+  /* ── Hero title ── */
+  .wn-eyebrow {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--cyan);
+    margin-bottom: 22px;
+    opacity: 0;
+    animation: pullUp 0.7s 0.2s ease both;
+  }
+
+  .wn-title {
+    font-size: clamp(52px, 9vw, 120px);
+    font-weight: 700;
+    line-height: 0.92;
+    letter-spacing: -0.05em;
+    text-align: center;
+    margin-bottom: 26px;
+    color: var(--text);
+    opacity: 0;
+    animation: pullUp 0.7s 0.35s ease both;
+  }
+  .wn-title .accent-cyan { color: var(--cyan); }
+  .wn-title .accent-magenta { color: var(--magenta); }
+
+  .wn-subtitle {
+    font-size: clamp(13px, 1.5vw, 16px);
+    color: var(--text2);
+    max-width: 540px;
+    text-align: center;
+    line-height: 1.65;
+    margin-bottom: 44px;
+    opacity: 0;
+    animation: pullUp 0.7s 0.5s ease both;
+  }
+
+  @keyframes pullUp {
+    from { opacity: 0; transform: translateY(22px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── Cards row ── */
+  .wn-cards {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    width: 100%;
+    max-width: 1080px;
+    margin-bottom: 32px;
+    opacity: 0;
+    animation: pullUp 0.7s 0.65s ease both;
+  }
+  @media (max-width: 1024px) { .wn-cards { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 560px)  { .wn-cards { grid-template-columns: 1fr; } }
+
+  .wn-card {
+    position: relative;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 18px;
+    padding: 22px 20px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    cursor: pointer;
+    overflow: hidden;
+    transition: border-color 0.25s, transform 0.25s, box-shadow 0.25s, background 0.25s;
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+  }
+  .wn-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(160deg, rgba(255,255,255,0.05) 0%, transparent 55%);
+    pointer-events: none;
+  }
+  /* Glow line at top */
+  .wn-card::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 16px; right: 16px;
+    height: 1px;
+    border-radius: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+    pointer-events: none;
+  }
+  .wn-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 24px 60px rgba(0,0,0,0.5);
+  }
+
+  /* Per-card accent colors */
+  .wn-card[data-accent="cyan"]    { --accent: var(--cyan); --accent-bg: var(--cyan-dim); --accent-bd: var(--cyan-bd); }
+  .wn-card[data-accent="violet"]  { --accent: var(--violet); --accent-bg: var(--violet-dim); --accent-bd: rgba(124,77,255,0.25); }
+  .wn-card[data-accent="grad"]    { --accent: var(--cyan); --accent-bg: linear-gradient(135deg,rgba(0,212,200,0.08),rgba(224,64,251,0.06)); --accent-bd: var(--cyan-bd); }
+  .wn-card[data-accent="magenta"] { --accent: var(--magenta); --accent-bg: var(--magenta-dim); --accent-bd: rgba(224,64,251,0.25); }
+
+  .wn-card:hover { border-color: var(--accent-bd, rgba(255,255,255,0.14)); background: var(--accent-bg, rgba(255,255,255,0.04)); box-shadow: 0 20px 60px rgba(0,0,0,.5), 0 0 30px rgba(0,212,200,0.07); }
+  .wn-card[data-accent="cyan"]:hover    { box-shadow: 0 20px 60px rgba(0,0,0,.5), 0 0 40px rgba(0,212,200,0.12); }
+  .wn-card[data-accent="violet"]:hover  { box-shadow: 0 20px 60px rgba(0,0,0,.5), 0 0 40px rgba(124,77,255,0.12); }
+  .wn-card[data-accent="grad"]:hover    { box-shadow: 0 20px 60px rgba(0,0,0,.5), 0 0 40px rgba(0,212,200,0.10); }
+  .wn-card[data-accent="magenta"]:hover { box-shadow: 0 20px 60px rgba(0,0,0,.5), 0 0 40px rgba(224,64,251,0.12); }
+
+  .wn-card-badge {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 20px;
+  }
+
+  .wn-card-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--accent-bd, rgba(255,255,255,0.08));
+    background: var(--accent-bg, rgba(255,255,255,0.05));
+    flex-shrink: 0;
+  }
+
+  .wn-card-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+  }
+
+  .wn-card-desc {
+    font-size: 11.5px;
+    color: var(--text3);
+    line-height: 1.65;
+    flex: 1;
+  }
+
+  .wn-card-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+  .wn-pill {
+    font-size: 9.5px;
+    padding: 2px 8px;
+    border-radius: 20px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.08);
+    color: var(--text3);
+    font-weight: 500;
+  }
+
+  .wn-card-btn {
+    margin-top: 4px;
+    height: 34px;
+    border-radius: 8px;
+    border: 1px solid var(--accent-bd, rgba(255,255,255,0.1));
+    background: var(--accent-bg, rgba(255,255,255,0.05));
+    color: var(--accent, var(--text2));
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+    letter-spacing: 0.01em;
+  }
+  .wn-card-btn:hover { opacity: 0.85; }
+
+  /* ── Bottom action bar ── */
+  .wn-actions {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    opacity: 0;
+    animation: pullUp 0.7s 0.8s ease both;
+  }
+
+  .wn-enter-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 26px;
+    border-radius: 30px;
+    background: linear-gradient(135deg, rgba(0,212,200,0.2), rgba(124,77,255,0.15));
+    border: 1px solid rgba(0,212,200,0.3);
+    color: var(--cyan);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.2s;
+    letter-spacing: 0.01em;
+  }
+  .wn-enter-btn:hover { background: linear-gradient(135deg,rgba(0,212,200,0.28),rgba(124,77,255,0.22)); box-shadow: 0 0 28px rgba(0,212,200,0.2); transform: translateY(-1px); }
+
+  .wn-skip-btn {
+    font-size: 12px;
+    color: var(--text3);
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-family: inherit;
+    transition: color 0.2s;
+    padding: 8px 6px;
+  }
+  .wn-skip-btn:hover { color: var(--text2); }
+
+  /* ── Animated scan line ── */
+  .wn-scanline {
+    position: absolute;
+    left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent 0%, rgba(0,212,200,0.4) 40%, rgba(224,64,251,0.4) 60%, transparent 100%);
+    pointer-events: none;
+    animation: scanline 6s linear infinite;
+    opacity: 0.4;
+  }
+  @keyframes scanline {
+    0%   { top: -2px; opacity: 0; }
+    5%   { opacity: 0.4; }
+    95%  { opacity: 0.4; }
+    100% { top: 100%; opacity: 0; }
+  }
+
+  /* ── Status bar (bottom) ── */
+  #wn-status {
+    position: relative;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 40px;
+    border-top: 1px solid rgba(255,255,255,0.05);
+    background: rgba(7,9,15,0.7);
+    backdrop-filter: blur(16px);
+    flex-shrink: 0;
+    font-size: 11px;
+    color: var(--text3);
+    font-family: 'JetBrains Mono', monospace;
+    opacity: 0;
+    animation: pullUp 0.5s 1s ease both;
+  }
+  .wn-status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--cyan);
+    display: inline-block;
+    margin-right: 7px;
+    animation: dotPulse 2s ease infinite;
+  }
+  @keyframes dotPulse { 0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(0,212,200,0.5)} 50%{opacity:0.7;box-shadow:0 0 0 4px rgba(0,212,200,0)} }
+  #wn-clock { letter-spacing: 0.08em; }
+  @media (max-width: 640px) { #wn-status { padding: 8px 20px; } }
+</style>
+</head>
+<body>
+
+<div id="wn-root">
+
+  <!-- Ambient backgrounds -->
+  <div class="wn-blob wn-blob-1"></div>
+  <div class="wn-blob wn-blob-2"></div>
+  <div class="wn-blob wn-blob-3"></div>
+  <div class="wn-noise"></div>
+  <div class="wn-grid"></div>
+  <div class="wn-scanline"></div>
+
+  <!-- Top navbar -->
+  <nav id="wn-nav">
+    <div class="wn-nav-logo">
+      <div class="logo-icon">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00d4c8" stroke-width="2">
+          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+        </svg>
+      </div>
+      Moodle DR
+    </div>
+    <div class="wn-nav-links">
+      <button class="wn-nav-link">Documentation</button>
+      <button class="wn-nav-link">Architecture</button>
+      <button class="wn-nav-link">Changelog</button>
+    </div>
+    <button class="wn-nav-cta" onclick="enterAppFromWelcome()">
+      Open Dashboard
+      <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+    </button>
+  </nav>
+
+  <!-- Hero body -->
+  <div id="wn-body">
+
+    <div class="wn-eyebrow">Disaster Recovery Platform</div>
+
+    <h1 class="wn-title">
+      <span class="accent-cyan">Moodle</span> <span class="accent-magenta">DR</span>
+    </h1>
+
+    <p class="wn-subtitle">
+      Production-grade replication, failover, and upgrade automation for Moodle LMS.
+      Replicate files &amp; databases to any cloud VM — then recover in minutes.
+    </p>
+
+    <!-- 4-card row -->
+    <div class="wn-cards">
+
+      <!-- Card 1: File Sync -->
+      <div class="wn-card" data-accent="cyan" onclick="startSetup('file_only')">
+        <div class="wn-card-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#00d4c8" stroke-width="1.8">
+            <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+          </svg>
+        </div>
+        <div class="wn-card-title">File Sync</div>
+        <div class="wn-card-desc">rsync + lsyncd real-time replication of /moodledata/ to your Azure VM with inotify change detection.</div>
+        <div class="wn-card-pills">
+          <span class="wn-pill">rsync</span>
+          <span class="wn-pill">lsyncd</span>
+          <span class="wn-pill">inotify</span>
+        </div>
+        <button class="wn-card-btn">
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 18 15 12 9 6"/></svg>
+          Start File Sync Setup
+        </button>
+      </div>
+
+      <!-- Card 2: Database Sync -->
+      <div class="wn-card" data-accent="violet" onclick="startSetup('db_only')">
+        <div class="wn-card-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#7c4dff" stroke-width="1.8">
+            <ellipse cx="12" cy="5" rx="9" ry="3"/>
+            <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
+            <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+          </svg>
+        </div>
+        <div class="wn-card-title">Database Sync</div>
+        <div class="wn-card-desc">MySQL/MariaDB GTID async replication with Percona Toolkit monitoring and automated failover.</div>
+        <div class="wn-card-pills">
+          <span class="wn-pill">GTID</span>
+          <span class="wn-pill">pt-heartbeat</span>
+          <span class="wn-pill">XtraBackup</span>
+        </div>
+        <button class="wn-card-btn">
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 18 15 12 9 6"/></svg>
+          Start DB Sync Setup
+        </button>
+      </div>
+
+      <!-- Card 3: Full DR Setup (featured) -->
+      <div class="wn-card" data-accent="grad" onclick="startSetup('both')" style="border-color:rgba(0,212,200,0.2);background:linear-gradient(135deg,rgba(0,212,200,0.07),rgba(224,64,251,0.05))">
+        <div class="wn-card-badge" style="background:rgba(0,212,200,0.12);border:1px solid rgba(0,212,200,0.3);color:#00d4c8;">Recommended</div>
+        <div class="wn-card-icon" style="background:linear-gradient(135deg,rgba(0,212,200,0.12),rgba(224,64,251,0.08));border-color:rgba(0,212,200,0.25)">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#00d4c8" stroke-width="1.8">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+          </svg>
+        </div>
+        <div class="wn-card-title">Full DR Setup</div>
+        <div class="wn-card-desc">Complete disaster recovery — file sync + database replication + unified DR readiness dashboard.</div>
+        <div class="wn-card-pills">
+          <span class="wn-pill" style="background:rgba(0,212,200,0.1);border-color:rgba(0,212,200,0.25);color:var(--cyan)">Recommended</span>
+          <span class="wn-pill">WireGuard</span>
+        </div>
+        <button class="wn-card-btn" style="background:linear-gradient(135deg,rgba(0,212,200,0.18),rgba(224,64,251,0.12));border-color:rgba(0,212,200,0.35);color:#00d4c8">
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 18 15 12 9 6"/></svg>
+          Start Full Setup
+        </button>
+      </div>
+
+      <!-- Card 4: Moodle Upgrade -->
+      <div class="wn-card" data-accent="magenta" onclick="openUpgradeFromWelcome()">
+        <div class="wn-card-icon">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e040fb" stroke-width="1.8">
+            <polyline points="16 16 12 12 8 16"/>
+            <line x1="12" y1="12" x2="12" y2="21"/>
+            <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/>
+          </svg>
+        </div>
+        <div class="wn-card-title">Moodle Upgrade</div>
+        <div class="wn-card-desc">Multi-stage version upgrades — in-place, lift &amp; shift, or replica-first with automatic path calculation.</div>
+        <div class="wn-card-pills">
+          <span class="wn-pill" style="background:rgba(224,64,251,0.1);border-color:rgba(224,64,251,0.25);color:#e040fb">In-Place</span>
+          <span class="wn-pill" style="background:rgba(124,77,255,0.1);border-color:rgba(124,77,255,0.3);color:#a78bfa">Lift &amp; Shift</span>
+        </div>
+        <button class="wn-card-btn" style="background:rgba(224,64,251,0.1);border-color:rgba(224,64,251,0.3);color:#e040fb">
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 18 15 12 9 6"/></svg>
+          Open Upgrade Manager
+        </button>
+      </div>
+
+    </div>
+
+    <!-- Action buttons -->
+    <div class="wn-actions">
+      <button class="wn-enter-btn" onclick="enterAppFromWelcome()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+        Enter Dashboard
+      </button>
+      <button class="wn-skip-btn" onclick="skipToApp()">Skip Setup →</button>
+    </div>
+
+  </div>
+
+  <!-- Status bar -->
+  <div id="wn-status">
+    <div>
+      <span class="wn-status-dot"></span>
+      System ready · v2.0
+    </div>
+    <div id="wn-clock">--:--:--</div>
+    <div style="color:var(--text3)">You can always return to Setup from the sidebar</div>
+  </div>
+
+</div>
+
+<script>
+// ── Clock ──────────────────────────────────────────────────────────────────
+(function clock() {
+  const el = document.getElementById('wn-clock');
+  function tick() {
+    const n = new Date();
+    el.textContent = n.toLocaleTimeString('en-US', { hour12: false });
+  }
+  tick();
+  setInterval(tick, 1000);
+})();
+
+// ── Particle canvas ────────────────────────────────────────────────────────
+(function particles() {
+  const canvas = document.createElement('canvas');
+  canvas.id = 'wn-canvas';
+  canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1';
+  document.getElementById('wn-root').prepend(canvas);
+  const ctx = canvas.getContext('2d');
+
+  const COLORS = ['#00d4c8', '#e040fb', '#7c4dff'];
+  const dots = [];
+
+  function resize() {
+    canvas.width  = canvas.offsetWidth;
+    canvas.height = canvas.offsetHeight;
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  for (let i = 0; i < 55; i++) {
+    dots.push({
+      x: Math.random(),
+      y: Math.random(),
+      r: 0.5 + Math.random() * 1.5,
+      vx: (Math.random() - 0.5) * 0.0003,
+      vy: (Math.random() - 0.5) * 0.0003,
+      c: COLORS[Math.floor(Math.random() * COLORS.length)],
+      a: 0.15 + Math.random() * 0.35,
+    });
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const W = canvas.width, H = canvas.height;
+
+    dots.forEach(d => {
+      d.x += d.vx; d.y += d.vy;
+      if (d.x < 0) d.x = 1; if (d.x > 1) d.x = 0;
+      if (d.y < 0) d.y = 1; if (d.y > 1) d.y = 0;
+      ctx.beginPath();
+      ctx.arc(d.x * W, d.y * H, d.r, 0, Math.PI * 2);
+      ctx.fillStyle = d.c;
+      ctx.globalAlpha = d.a;
+      ctx.fill();
+    });
+
+    // Draw connection lines between nearby dots
+    ctx.globalAlpha = 1;
+    for (let i = 0; i < dots.length; i++) {
+      for (let j = i + 1; j < dots.length; j++) {
+        const dx = (dots[i].x - dots[j].x) * W;
+        const dy = (dots[i].y - dots[j].y) * H;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist < 120) {
+          ctx.beginPath();
+          ctx.moveTo(dots[i].x * W, dots[i].y * H);
+          ctx.lineTo(dots[j].x * W, dots[j].y * H);
+          ctx.strokeStyle = '#00d4c8';
+          ctx.globalAlpha = (1 - dist / 120) * 0.06;
+          ctx.lineWidth = 0.5;
+          ctx.stroke();
+        }
+      }
+    }
+    ctx.globalAlpha = 1;
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+
+// ── Action stubs — these call back into the main app shell ─────────────────
+// When embedded inside index.html, these functions are already defined.
+// This standalone file provides no-op stubs so it can preview independently.
+if (typeof startSetup !== 'function') {
+  window.startSetup = function(mode) { alert('Start setup: ' + mode); };
+}
+if (typeof skipToApp !== 'function') {
+  window.skipToApp = function() { alert('Skip to app'); };
+}
+if (typeof enterAppFromWelcome !== 'function') {
+  window.enterAppFromWelcome = function() { alert('Enter dashboard'); };
+}
+if (typeof openUpgradeFromWelcome !== 'function') {
+  window.openUpgradeFromWelcome = function() { alert('Open upgrade manager'); };
+}
+</script>
+
+</body>
+</html>

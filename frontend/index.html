@@ -90,13 +90,15 @@ body::after{content:'';position:fixed;bottom:-20%;right:-10%;width:55%;height:60
 #welcome-screen{position:fixed;inset:0;z-index:100;background:var(--bg);display:flex;align-items:center;justify-content:center;opacity:1;transition:opacity .6s ease}
 #welcome-screen.fade-out{opacity:0;pointer-events:none}
 #welcomeCanvas{position:absolute;inset:0;width:100%;height:100%}
-.wc-center{position:relative;z-index:2;text-align:center;max-width:900px;padding:40px 24px}
+.wc-center{position:relative;z-index:2;text-align:center;max-width:1160px;width:100%;padding:40px 24px}
 .wc-tag{font-size:10px;font-weight:700;letter-spacing:.22em;color:var(--cyan);text-transform:uppercase;margin-bottom:20px;opacity:.9}
 .wc-title{font-size:58px;font-weight:700;line-height:1.05;margin-bottom:14px;background:linear-gradient(130deg,#fff 0%,var(--cyan) 40%,var(--magenta) 75%,#fff 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;filter:drop-shadow(0 0 40px rgba(0,212,200,0.25))}
 .wc-sub{font-size:17px;color:var(--text2);margin-bottom:8px;font-weight:400}
 .wc-desc{font-size:13px;color:var(--text3);max-width:500px;margin:0 auto 36px;line-height:1.7}
-.wc-cards{display:flex;gap:16px;justify-content:center;flex-wrap:wrap;margin-bottom:32px}
-.wc-card{background:var(--glass-2);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid var(--glass-border2);border-radius:var(--r3);padding:26px 22px;width:230px;text-align:left;cursor:pointer;transition:border-color .25s,transform .25s,box-shadow .25s;display:flex;flex-direction:column;gap:12px;position:relative;overflow:hidden}
+.wc-cards{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;justify-content:center;margin-bottom:32px;width:100%}
+@media(max-width:1024px){.wc-cards{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:580px){.wc-cards{grid-template-columns:1fr}}
+.wc-card{background:var(--glass-2);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid var(--glass-border2);border-radius:var(--r3);padding:26px 22px;width:100%;text-align:left;cursor:pointer;transition:border-color .25s,transform .25s,box-shadow .25s;display:flex;flex-direction:column;gap:12px;position:relative;overflow:hidden}
 .wc-card::before{content:'';position:absolute;inset:0;border-radius:inherit;background:linear-gradient(135deg,rgba(255,255,255,0.04) 0%,transparent 60%);pointer-events:none}
 .wc-card:hover{border-color:var(--glass-border3);transform:translateY(-3px);box-shadow:0 20px 60px rgba(0,0,0,.5),0 0 30px rgba(0,212,200,0.08)}
 .wc-card.featured{border-color:var(--cyan-bd);background:linear-gradient(135deg,rgba(0,212,200,0.07),rgba(224,64,251,0.05));box-shadow:0 0 40px rgba(0,212,200,0.08)}
@@ -118,6 +120,71 @@ body::after{content:'';position:fixed;bottom:-20%;right:-10%;width:55%;height:60
 .wc-enter-btn:hover{box-shadow:0 0 28px rgba(0,212,200,0.35);transform:translateY(-1px)}
 .wc-skip-btn{height:42px;padding:0 24px;border-radius:var(--r);font-size:13px;font-weight:500;cursor:pointer;border:1px solid var(--glass-border2);background:transparent;color:var(--text3);transition:all .2s}
 .wc-skip-btn:hover{border-color:var(--glass-border3);color:var(--text2)}
+/* ── LANDING STYLE TOGGLE ── */
+.wn-style-toggle{position:absolute;bottom:18px;right:22px;z-index:30;display:flex;align-items:center;gap:8px;font-size:10px;color:var(--text3);background:rgba(7,9,15,0.6);border:1px solid rgba(255,255,255,0.08);border-radius:20px;padding:5px 12px 5px 10px;cursor:pointer;transition:border-color .2s,color .2s;backdrop-filter:blur(12px)}
+.wn-style-toggle:hover{border-color:rgba(255,255,255,0.16);color:var(--text2)}
+.wn-style-toggle svg{opacity:.6}
+/* ── NEW WELCOME SCREEN ── */
+#welcome-screen-new{position:fixed;inset:0;z-index:100;display:none;flex-direction:column;overflow:hidden;background:var(--bg);opacity:1;transition:opacity .6s ease}
+#welcome-screen-new.fade-out{opacity:0;pointer-events:none}
+/* New welcome — blobs */
+.wn-blob{position:absolute;border-radius:50%;filter:blur(120px);opacity:.18;pointer-events:none;animation:wnBlobPulse 8s ease-in-out infinite alternate}
+.wn-blob-1{width:600px;height:600px;background:radial-gradient(circle,#00d4c8,transparent 70%);top:-150px;left:-100px;animation-delay:0s}
+.wn-blob-2{width:500px;height:500px;background:radial-gradient(circle,#e040fb,transparent 70%);bottom:-100px;right:-80px;animation-delay:3s}
+.wn-blob-3{width:400px;height:400px;background:radial-gradient(circle,#7c4dff,transparent 70%);top:40%;left:50%;transform:translate(-50%,-50%);animation:wnBlobPulse3 8s ease-in-out infinite alternate;animation-delay:1.5s}
+@keyframes wnBlobPulse{0%{opacity:.12;transform:scale(1)}100%{opacity:.22;transform:scale(1.08)}}
+@keyframes wnBlobPulse3{0%{opacity:.12;transform:translate(-50%,-50%) scale(1)}100%{opacity:.2;transform:translate(-50%,-50%) scale(1.1)}}
+/* New welcome — noise + grid */
+.wn-noise{position:absolute;inset:0;opacity:.4;mix-blend-mode:overlay;pointer-events:none;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='1'/%3E%3C/svg%3E");background-size:200px 200px}
+.wn-grid{position:absolute;inset:0;pointer-events:none;background-image:linear-gradient(rgba(255,255,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px);background-size:64px 64px;mask-image:radial-gradient(ellipse 80% 80% at 50% 50%,black 30%,transparent 100%)}
+.wn-scanline{position:absolute;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent 0%,rgba(0,212,200,.4) 40%,rgba(224,64,251,.4) 60%,transparent 100%);pointer-events:none;animation:wnScanline 6s linear infinite;opacity:.4;z-index:2}
+@keyframes wnScanline{0%{top:-2px;opacity:0}5%{opacity:.4}95%{opacity:.4}100%{top:100%;opacity:0}}
+/* New welcome — nav */
+#wn-nav{position:relative;z-index:20;display:flex;align-items:center;justify-content:space-between;padding:18px 36px;border-bottom:1px solid rgba(255,255,255,.05);background:rgba(7,9,15,.6);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);flex-shrink:0;animation:wnFadeDown .7s ease both}
+@keyframes wnFadeDown{from{opacity:0;transform:translateY(-12px)}to{opacity:1;transform:translateY(0)}}
+.wn-nav-logo{display:flex;align-items:center;gap:10px;font-size:15px;font-weight:700;color:var(--text);letter-spacing:-.02em}
+.wn-nav-logo .logo-icon{width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,rgba(0,212,200,.25),rgba(124,77,255,.2));border:1px solid rgba(0,212,200,.3);display:flex;align-items:center;justify-content:center}
+.wn-nav-links{display:flex;align-items:center;gap:6px}
+.wn-nav-link{font-size:12px;font-weight:500;color:var(--text3);padding:6px 14px;border-radius:20px;cursor:pointer;transition:color .2s,background .2s;border:none;background:transparent;font-family:inherit}
+.wn-nav-link:hover{color:var(--text2);background:rgba(255,255,255,.05)}
+.wn-nav-cta{font-size:12px;font-weight:600;color:#07090f;padding:8px 20px;border-radius:20px;background:var(--cyan);border:none;cursor:pointer;font-family:inherit;transition:opacity .2s,transform .15s;display:flex;align-items:center;gap:6px}
+.wn-nav-cta:hover{opacity:.88;transform:translateY(-1px)}
+@media(max-width:640px){#wn-nav{padding:14px 20px}.wn-nav-links{display:none}}
+/* New welcome — body */
+#wn-body{position:relative;z-index:10;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 24px 24px;overflow:hidden}
+.wn-eyebrow{font-size:11px;font-weight:700;letter-spacing:.22em;text-transform:uppercase;color:var(--cyan);margin-bottom:22px;opacity:0;animation:wnPullUp .7s .2s ease both}
+.wn-hero-title{font-size:clamp(52px,9vw,120px);font-weight:700;line-height:.92;letter-spacing:-.05em;text-align:center;margin-bottom:26px;color:var(--text);opacity:0;animation:wnPullUp .7s .35s ease both}
+.wn-hero-title .ht-cyan{color:var(--cyan)}.wn-hero-title .ht-magenta{color:var(--magenta)}
+.wn-subtitle{font-size:clamp(13px,1.5vw,15px);color:var(--text2);max-width:520px;text-align:center;line-height:1.65;margin-bottom:40px;opacity:0;animation:wnPullUp .7s .5s ease both}
+@keyframes wnPullUp{from{opacity:0;transform:translateY(22px)}to{opacity:1;transform:translateY(0)}}
+/* New welcome — cards */
+.wn-cards{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;width:100%;max-width:1080px;margin-bottom:28px;opacity:0;animation:wnPullUp .7s .65s ease both}
+@media(max-width:1024px){.wn-cards{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:560px){.wn-cards{grid-template-columns:1fr}}
+.wn-card{position:relative;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:18px;padding:22px 20px 20px;display:flex;flex-direction:column;gap:10px;cursor:pointer;overflow:hidden;transition:border-color .25s,transform .25s,box-shadow .25s,background .25s;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px)}
+.wn-card::before{content:'';position:absolute;inset:0;border-radius:inherit;background:linear-gradient(160deg,rgba(255,255,255,.05) 0%,transparent 55%);pointer-events:none}
+.wn-card::after{content:'';position:absolute;top:0;left:16px;right:16px;height:1px;border-radius:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.15),transparent);pointer-events:none}
+.wn-card:hover{transform:translateY(-4px)}
+.wn-card-badge{position:absolute;top:14px;right:14px;font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:3px 8px;border-radius:20px}
+.wn-card-icon{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.wn-card-title{font-size:14px;font-weight:700;color:var(--text);letter-spacing:-.02em;line-height:1.2}
+.wn-card-desc{font-size:11.5px;color:var(--text3);line-height:1.65;flex:1}
+.wn-card-pills{display:flex;flex-wrap:wrap;gap:5px}
+.wn-pill{font-size:9.5px;padding:2px 8px;border-radius:20px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);color:var(--text3);font-weight:500}
+.wn-card-btn{margin-top:4px;height:34px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:6px;width:100%;letter-spacing:.01em}
+.wn-card-btn:hover{opacity:.85}
+/* New welcome — actions */
+.wn-actions{display:flex;align-items:center;gap:14px;opacity:0;animation:wnPullUp .7s .8s ease both}
+.wn-enter-btn{display:flex;align-items:center;gap:8px;padding:10px 26px;border-radius:30px;background:linear-gradient(135deg,rgba(0,212,200,.2),rgba(124,77,255,.15));border:1px solid rgba(0,212,200,.3);color:var(--cyan);font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .2s;letter-spacing:.01em}
+.wn-enter-btn:hover{background:linear-gradient(135deg,rgba(0,212,200,.28),rgba(124,77,255,.22));box-shadow:0 0 28px rgba(0,212,200,.2);transform:translateY(-1px)}
+.wn-skip-btn2{font-size:12px;color:var(--text3);background:none;border:none;cursor:pointer;font-family:inherit;transition:color .2s;padding:8px 6px}
+.wn-skip-btn2:hover{color:var(--text2)}
+/* New welcome — status bar */
+#wn-status{position:relative;z-index:20;display:flex;align-items:center;justify-content:space-between;padding:10px 36px;border-top:1px solid rgba(255,255,255,.05);background:rgba(7,9,15,.7);backdrop-filter:blur(16px);flex-shrink:0;font-size:11px;color:var(--text3);font-family:'JetBrains Mono',monospace;opacity:0;animation:wnPullUp .5s 1s ease both}
+.wn-status-dot{width:6px;height:6px;border-radius:50%;background:var(--cyan);display:inline-block;margin-right:7px;animation:wnDotPulse 2s ease infinite}
+@keyframes wnDotPulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(0,212,200,.5)}50%{opacity:.7;box-shadow:0 0 0 4px rgba(0,212,200,0)}}
+#wn-clock{letter-spacing:.08em}
+@media(max-width:640px){#wn-status{padding:8px 20px}}
 
 /* ── SHELL LAYOUT ── */
 .shell{display:flex;height:100vh;overflow:hidden;position:relative;z-index:1}
@@ -435,8 +502,115 @@ canvas.chart{width:100%;height:100%}
       <button class="wc-skip-btn" onclick="skipToApp()" title="Skip setup and go straight to the app">Skip Setup &rarr;</button>
     </div>
     <div style="font-size:11px;color:var(--text3);margin-top:12px;opacity:.6">You can always return to Setup Wizard from the sidebar</div>
+    <!-- Toggle to new landing style -->
+    <button class="wn-style-toggle" onclick="switchToNewLanding()" title="Try the new landing page style">
+      <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.87"/></svg>
+      New look
+    </button>
   </div>
 </div>
+
+<!-- NEW WELCOME SCREEN -->
+<div id="welcome-screen-new" style="display:none;flex-direction:column">
+  <!-- Ambient blobs -->
+  <div class="wn-blob wn-blob-1"></div>
+  <div class="wn-blob wn-blob-2"></div>
+  <div class="wn-blob wn-blob-3"></div>
+  <div class="wn-noise"></div>
+  <div class="wn-grid"></div>
+  <div class="wn-scanline"></div>
+  <!-- Canvas for particles -->
+  <canvas id="wnParticleCanvas" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1"></canvas>
+  <!-- Top nav -->
+  <nav id="wn-nav">
+    <div class="wn-nav-logo">
+      <div class="logo-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00d4c8" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></div>
+      Moodle DR
+    </div>
+    <div class="wn-nav-links">
+      <button class="wn-nav-link">Documentation</button>
+      <button class="wn-nav-link">Architecture</button>
+      <button class="wn-nav-link" onclick="switchToClassicLanding()">Classic UI</button>
+    </div>
+    <button class="wn-nav-cta" onclick="enterAppFromWelcome()">
+      Open Dashboard
+      <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+    </button>
+  </nav>
+  <!-- Body -->
+  <div id="wn-body">
+    <div class="wn-eyebrow">Disaster Recovery Platform</div>
+    <h1 class="wn-hero-title"><span class="ht-cyan">Moodle</span> <span class="ht-magenta">DR</span></h1>
+    <p class="wn-subtitle">Production-grade replication, failover, and upgrade automation for Moodle LMS. Replicate files &amp; databases to any cloud VM &mdash; then recover in minutes.</p>
+    <!-- 4-card grid -->
+    <div class="wn-cards">
+      <!-- File Sync -->
+      <div class="wn-card" onclick="startSetup('file_only')" style="--accent:#00d4c8;border-color:rgba(0,212,200,.12)">
+        <div class="wn-card-icon" style="background:rgba(0,212,200,.08);border:1px solid rgba(0,212,200,.25)">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#00d4c8" stroke-width="1.8"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+        </div>
+        <div class="wn-card-title">File Sync</div>
+        <div class="wn-card-desc">rsync + lsyncd real-time replication of /moodledata/ to your Azure VM with inotify change detection.</div>
+        <div class="wn-card-pills"><span class="wn-pill">rsync</span><span class="wn-pill">lsyncd</span><span class="wn-pill">inotify</span></div>
+        <button class="wn-card-btn" style="background:rgba(0,212,200,.08);border:1px solid rgba(0,212,200,.25);color:#00d4c8">
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 18 15 12 9 6"/></svg>Start File Sync Setup
+        </button>
+      </div>
+      <!-- DB Sync -->
+      <div class="wn-card" onclick="startSetup('db_only')" style="--accent:#7c4dff;border-color:rgba(124,77,255,.12)">
+        <div class="wn-card-icon" style="background:rgba(124,77,255,.08);border:1px solid rgba(124,77,255,.25)">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#7c4dff" stroke-width="1.8"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+        </div>
+        <div class="wn-card-title">Database Sync</div>
+        <div class="wn-card-desc">MySQL/MariaDB GTID async replication with Percona Toolkit monitoring and automated failover.</div>
+        <div class="wn-card-pills"><span class="wn-pill">GTID</span><span class="wn-pill">pt-heartbeat</span><span class="wn-pill">XtraBackup</span></div>
+        <button class="wn-card-btn" style="background:rgba(124,77,255,.08);border:1px solid rgba(124,77,255,.25);color:#7c4dff">
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 18 15 12 9 6"/></svg>Start DB Sync Setup
+        </button>
+      </div>
+      <!-- Full DR (featured) -->
+      <div class="wn-card" onclick="startSetup('both')" style="border-color:rgba(0,212,200,.2);background:linear-gradient(135deg,rgba(0,212,200,.07),rgba(224,64,251,.05))">
+        <div class="wn-card-badge" style="background:rgba(0,212,200,.12);border:1px solid rgba(0,212,200,.3);color:#00d4c8">Recommended</div>
+        <div class="wn-card-icon" style="background:linear-gradient(135deg,rgba(0,212,200,.12),rgba(224,64,251,.08));border:1px solid rgba(0,212,200,.25)">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#00d4c8" stroke-width="1.8"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+        </div>
+        <div class="wn-card-title">Full DR Setup</div>
+        <div class="wn-card-desc">Complete disaster recovery — file sync + database replication + unified DR readiness dashboard.</div>
+        <div class="wn-card-pills"><span class="wn-pill" style="background:rgba(0,212,200,.1);border-color:rgba(0,212,200,.25);color:#00d4c8">Recommended</span><span class="wn-pill">WireGuard</span></div>
+        <button class="wn-card-btn" style="background:linear-gradient(135deg,rgba(0,212,200,.18),rgba(224,64,251,.12));border:1px solid rgba(0,212,200,.35);color:#00d4c8">
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 18 15 12 9 6"/></svg>Start Full Setup
+        </button>
+      </div>
+      <!-- Moodle Upgrade -->
+      <div class="wn-card" onclick="openUpgradeFromWelcome()" style="--accent:#e040fb;border-color:rgba(224,64,251,.12)">
+        <div class="wn-card-icon" style="background:rgba(224,64,251,.08);border:1px solid rgba(224,64,251,.25)">
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e040fb" stroke-width="1.8"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>
+        </div>
+        <div class="wn-card-title">Moodle Upgrade</div>
+        <div class="wn-card-desc">Multi-stage version upgrades — in-place, lift &amp; shift, or replica-first with automatic path calculation.</div>
+        <div class="wn-card-pills"><span class="wn-pill" style="background:rgba(224,64,251,.1);border-color:rgba(224,64,251,.25);color:#e040fb">In-Place</span><span class="wn-pill" style="background:rgba(124,77,255,.1);border-color:rgba(124,77,255,.3);color:#a78bfa">Lift &amp; Shift</span></div>
+        <button class="wn-card-btn" style="background:rgba(224,64,251,.1);border:1px solid rgba(224,64,251,.3);color:#e040fb">
+          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="9 18 15 12 9 6"/></svg>Open Upgrade Manager
+        </button>
+      </div>
+    </div>
+    <!-- Actions -->
+    <div class="wn-actions">
+      <button class="wn-enter-btn" onclick="enterAppFromWelcome()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+        Enter Dashboard
+      </button>
+      <button class="wn-skip-btn2" onclick="skipToApp()">Skip Setup &rarr;</button>
+    </div>
+  </div>
+  <!-- Status bar -->
+  <div id="wn-status">
+    <div><span class="wn-status-dot"></span>System ready &middot; v2.0</div>
+    <div id="wn-clock">--:--:--</div>
+    <div>You can always return to Setup from the sidebar</div>
+  </div>
+</div>
+
 <!-- MAIN APP SHELL -->
 <div class="shell" id="appShell" style="display:none">
   <aside class="sidebar" id="sidebar" style="position:relative;overflow:visible">
@@ -4063,6 +4237,87 @@ function enterAppFromWelcome() {
   startTopbarPolling();
 }
 
+/* ── LANDING PAGE STYLE SWITCHER ───────────────────────────────────────── */
+function _getLandingStyle() {
+  try { return localStorage.getItem('mdr_landing_style') || 'classic'; } catch(e) { return 'classic'; }
+}
+function _setLandingStyle(s) {
+  try { localStorage.setItem('mdr_landing_style', s); } catch(e) {}
+}
+function switchToNewLanding() {
+  _setLandingStyle('new');
+  document.getElementById('welcome-screen').style.display = 'none';
+  const wn = document.getElementById('welcome-screen-new');
+  wn.style.display = 'flex';
+  _initWnClock();
+  _initWnParticles();
+}
+function switchToClassicLanding() {
+  _setLandingStyle('classic');
+  document.getElementById('welcome-screen-new').style.display = 'none';
+  document.getElementById('welcome-screen').style.display = 'flex';
+}
+function _showCorrectLanding() {
+  const style = _getLandingStyle();
+  if (style === 'new') {
+    document.getElementById('welcome-screen').style.display = 'none';
+    const wn = document.getElementById('welcome-screen-new');
+    wn.style.display = 'flex';
+    _initWnClock();
+    _initWnParticles();
+  }
+  // else classic is shown by default (display:flex set in HTML)
+}
+
+/* ── NEW LANDING JS HELPERS ─────────────────────────────────────────────── */
+let _wnClockInit = false;
+function _initWnClock() {
+  if (_wnClockInit) return; _wnClockInit = true;
+  const el = document.getElementById('wn-clock');
+  if (!el) return;
+  function tick() { el.textContent = new Date().toLocaleTimeString('en-US', { hour12: false }); }
+  tick(); setInterval(tick, 1000);
+}
+
+let _wnParticlesInit = false;
+function _initWnParticles() {
+  if (_wnParticlesInit) return; _wnParticlesInit = true;
+  const canvas = document.getElementById('wnParticleCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const COLORS = ['#00d4c8','#e040fb','#7c4dff'];
+  const dots = [];
+  function resize() { canvas.width = canvas.offsetWidth; canvas.height = canvas.offsetHeight; }
+  resize(); window.addEventListener('resize', resize);
+  for (let i = 0; i < 55; i++) {
+    dots.push({ x:Math.random(), y:Math.random(), r:0.5+Math.random()*1.5,
+      vx:(Math.random()-0.5)*0.0003, vy:(Math.random()-0.5)*0.0003,
+      c:COLORS[Math.floor(Math.random()*COLORS.length)], a:0.15+Math.random()*0.35 });
+  }
+  function draw() {
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    const W=canvas.width,H=canvas.height;
+    dots.forEach(d => {
+      d.x+=d.vx; d.y+=d.vy;
+      if(d.x<0)d.x=1; if(d.x>1)d.x=0; if(d.y<0)d.y=1; if(d.y>1)d.y=0;
+      ctx.beginPath(); ctx.arc(d.x*W,d.y*H,d.r,0,Math.PI*2);
+      ctx.fillStyle=d.c; ctx.globalAlpha=d.a; ctx.fill();
+    });
+    ctx.globalAlpha=1;
+    for(let i=0;i<dots.length;i++) for(let j=i+1;j<dots.length;j++) {
+      const dx=(dots[i].x-dots[j].x)*W, dy=(dots[i].y-dots[j].y)*H;
+      const dist=Math.sqrt(dx*dx+dy*dy);
+      if(dist<120) {
+        ctx.beginPath(); ctx.moveTo(dots[i].x*W,dots[i].y*H); ctx.lineTo(dots[j].x*W,dots[j].y*H);
+        ctx.strokeStyle='#00d4c8'; ctx.globalAlpha=(1-dist/120)*0.06; ctx.lineWidth=0.5; ctx.stroke();
+      }
+    }
+    ctx.globalAlpha=1;
+    requestAnimationFrame(draw);
+  }
+  draw();
+}
+
 async function initApp() {
   initWelcomeCanvas();
   try {
@@ -4079,11 +4334,15 @@ async function initApp() {
   if (appState.welcomeSeen && hasConfig) {
     // Returning user with real config — skip straight to the app
     document.getElementById('welcome-screen').style.display='none';
+    document.getElementById('welcome-screen-new').style.display='none';
     document.getElementById('appShell').style.display='flex';
     showPage('dr_readiness');
     startClock();
     startTopbarPolling();
+    return;
   }
+  // Show the correct landing style based on user preference
+  _showCorrectLanding();
   // else: stay on welcome screen — user must click a card, Enter Dashboard, or Skip Setup
 }
 

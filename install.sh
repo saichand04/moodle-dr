@@ -74,6 +74,23 @@ else
     echo "  User $SERVICE_USER already exists"
 fi
 
+# Add moodledr to www-data group so it can read Moodle files (version.php, config.php)
+# owned by www-data without needing sudo.
+if getent group www-data &>/dev/null; then
+    usermod -aG www-data "$SERVICE_USER"
+    echo "  Added $SERVICE_USER to www-data group"
+fi
+
+# Also grant sudoers entry for read-only ops (cat, find) so version detection
+# can read files owned by root or other web-server users.
+SUDOERS_FILE="/etc/sudoers.d/moodledr"
+cat > "$SUDOERS_FILE" <<'SUDOEOF'
+# Moodle DR — allow moodledr to read files as root for version detection
+moodledr ALL=(ALL) NOPASSWD: /bin/cat, /usr/bin/find
+SUDOEOF
+chmod 0440 "$SUDOERS_FILE"
+echo "  Sudoers rule written to $SUDOERS_FILE"
+
 # ── Directories ────────────────────────────────────────────────────────────────
 echo "[3/7] Creating directories..."
 mkdir -p "$INSTALL_DIR/backend" "$INSTALL_DIR/frontend" "$DATA_DIR" "$CONFIG_DIR"
