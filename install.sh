@@ -59,11 +59,28 @@ fi
 
 echo "[1/7] Installing system dependencies..."
 apt-get update -qq
+# Install only the CLI client — explicitly hold back any server packages so we
+# never accidentally upgrade or restart a running MariaDB/MySQL server on this host.
 apt-get install -y \
     python3 python3-pip python3-venv \
     rsync openssh-client lsyncd \
-    curl net-tools mariadb-client \
+    curl net-tools \
     --no-install-recommends -qq
+
+# Install mariadb-client only — guard against pulling in mariadb-server.
+# mariadb-client is only needed for mysqldump / mysql CLI on the source side;
+# if it would trigger a server package install or upgrade, skip it safely.
+if apt-cache show mariadb-client &>/dev/null 2>&1; then
+    # Check whether installing mariadb-client would drag in or upgrade mariadb-server.
+    WOULD_INSTALL=$(apt-get install --dry-run mariadb-client 2>/dev/null | grep -E '^Inst mariadb-server' || true)
+    if [[ -z "$WOULD_INSTALL" ]]; then
+        apt-get install -y mariadb-client --no-install-recommends -qq
+        echo "  Installed mariadb-client"
+    else
+        echo "  Skipped mariadb-client (would upgrade mariadb-server on this host — not safe)"
+        echo "  Install manually if needed: apt-get install mariadb-client"
+    fi
+fi
 
 # ── Service user ───────────────────────────────────────────────────────────────
 echo "[2/7] Setting up service user..."
