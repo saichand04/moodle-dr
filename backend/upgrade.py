@@ -245,26 +245,75 @@ def _ssh_interactive(host: str, user: str, key: Optional[str], cmds: List[str], 
     return _ssh_cmd(host, user, key, f"bash -c '{script}'", timeout=timeout)
 
 
+# Common Moodle installation paths to probe when user-supplied dir fails
+_MOODLE_COMMON_PATHS = [
+    "/var/www/html/moodle",
+    "/var/www/moodle",
+    "/var/www/html",
+    "/opt/moodle",
+    "/srv/moodle",
+]
+
 def _detect_moodle_on_host(host: str, user: str, key: Optional[str], moodle_dir: str) -> Dict[str, Any]:
-    """Detect Moodle version, PHP version, and DB version on a remote host."""
+    """Detect Moodle version, PHP version, and DB version on a host (local or remote)."""
     results = {}
 
-    # Detect Moodle version from version.php
-    r = _ssh_cmd(host, user, key,
-        f"grep -E \"^\\s*\\\\$version\\s*=\" {moodle_dir}/version.php 2>/dev/null | head -1 || "
-        f"grep 'release' {moodle_dir}/version.php 2>/dev/null | head -3")
-    results["version_raw"] = r.get("stdout", "")
+    # ── Step 1: find and read version.php ────────────────────────────────────
+    # Uses sudo cat first (bypasses www-data/root file ownership),
+    # falls back to plain cat, then auto-discovers common paths.
+    def _read_version_php(path: str) -> str:
+        cmd = (
+            f"sudo cat {path}/version.php 2>/dev/null || "
+            f"cat {path}/version.php 2>/dev/null"
+        )
+        r = _ssh_cmd(host, user, key, cmd)
+        return r.get("stdout", "")
 
-    # Also try release string
-    r2 = _ssh_cmd(host, user, key,
-        f"grep -E \"release\\s*=\" {moodle_dir}/version.php 2>/dev/null | head -1")
-    results["release_raw"] = r2.get("stdout", "")
+    version_php_content = ""
+    resolved_dir = moodle_dir
 
-    # Parse version from release string e.g. "4.1.9+ (Build: 20231120)"
+    content = _read_version_php(moodle_dir)
+    if "$release" in content or "$version" in content:
+        version_php_content = content
+    else:
+        for candidate in [p for p in _MOODLE_COMMON_PATHS if p != moodle_dir]:
+            content = _read_version_php(candidate)
+            if "$release" in content or "$version" in content:
+                version_php_content = content
+                resolved_dir = candidate
+                break
+        if not version_php_content:
+            find_r = _ssh_cmd(host, user, key,
+                "find /var/www /opt /srv -name version.php "
+                "-not -path '*/mod/*' -not -path '*/blocks/*' 2>/dev/null | head -5")
+            for found_path in find_r.get("stdout", "").splitlines():
+                found_dir = found_path.rsplit("/", 1)[0]
+                content = _read_version_php(found_dir)
+                if "$release" in content or "$version" in content:
+                    version_php_content = content
+                    resolved_dir = found_dir
+                    break
+
+    results["resolved_dir"] = resolved_dir
+    results["version_php_found"] = bool(version_php_content)
+
+    # ── Step 2: parse version from content ───────────────────────────────────
+    release_raw = ""
+    for line in version_php_content.splitlines():
+        if re.search(r"^\s*\$release\s*=", line):
+            release_raw = line
+            break
+    results["release_raw"] = release_raw
+
     version = None
-    release_match = re.search(r"(\d+\.\d+(?:\.\d+)?)", results.get("release_raw", ""))
+    # Match '4.1.9+' or '5.1' inside single-quoted string
+    release_match = re.search(r"'([\d]+\.[\d]+(?:\.[\d]+)?)[^']*'", release_raw)
     if release_match:
         version = release_match.group(1)
+    else:
+        release_match2 = re.search(r"(\d+\.\d+(?:\.\d+)?)", release_raw)
+        if release_match2:
+            version = release_match2.group(1)
     results["moodle_version"] = version
 
     # Detect PHP version

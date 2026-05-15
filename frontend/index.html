@@ -3743,12 +3743,18 @@ async function upgradeDetect(role) {
       if (phpEl) phpEl.textContent = `PHP: ${det.php_version||'?'}  |  ${det.db_type||'DB'}: ${det.db_version||'?'}`;
       upgradeComputePath();
       if (det.moodle_version) {
-        upgradeBanner('ok', `Source detected${localNote}: Moodle ${det.moodle_version} | PHP ${det.php_version||'?'} | ${det.db_type||'DB'} ${det.db_version||'?'}`);
+        const foundAt = det.resolved_dir && det.resolved_dir !== (dir||'/var/www/html/moodle')
+          ? ` (found at ${det.resolved_dir})` : '';
+        upgradeBanner('ok', `Source detected${localNote}${foundAt}: Moodle ${det.moodle_version} | PHP ${det.php_version||'?'} | ${det.db_type||'DB'} ${det.db_version||'?'}`);
+        // Update the moodle dir field if auto-discovered a different path
+        if (det.resolved_dir && det.resolved_dir !== (dir||'/var/www/html/moodle')) {
+          const dirEl = document.getElementById('upg-src-dir');
+          if (dirEl) dirEl.value = det.resolved_dir;
+        }
       } else {
-        // Detection ran but version came back blank — give a helpful hint
-        const hint = det.config_found===false
-          ? `config.php not found at ${dir||'/var/www/html/moodle'} — check Moodle Directory field`
-          : `version.php found but release string not parsed — raw: ${det.release_raw||'(empty)'}`;
+        const hint = !det.version_php_found
+          ? `version.php not found — tried ${det.resolved_dir||dir}. Check the Moodle Directory field.`
+          : `version.php found but \$release line not parsed — raw: "${det.release_raw||''}"`;
         upgradeBanner('error', `Version detection failed${localNote}: ${hint}`);
       }
     } else {
@@ -4067,15 +4073,18 @@ async function initApp() {
     appState.dbSetupComplete=r.db_setup_complete||false;
   } catch(e){}
 
-  if (appState.welcomeSeen) {
-    // Returning user — skip straight to the app
+  // Auto-skip to app only when user has genuinely configured something.
+  // welcome_seen=true alone is not enough — they may have just dismissed it before.
+  const hasConfig = appState.setupMode || appState.fileSetupComplete || appState.dbSetupComplete;
+  if (appState.welcomeSeen && hasConfig) {
+    // Returning user with real config — skip straight to the app
     document.getElementById('welcome-screen').style.display='none';
     document.getElementById('appShell').style.display='flex';
     showPage('dr_readiness');
     startClock();
     startTopbarPolling();
   }
-  // else: stay on welcome screen — user must click Enter Dashboard or Skip Setup
+  // else: stay on welcome screen — user must click a card, Enter Dashboard, or Skip Setup
 }
 
 document.addEventListener('DOMContentLoaded', initApp);
