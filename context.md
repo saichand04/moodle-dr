@@ -1,8 +1,8 @@
 # Moodle DR — Project Context for Claude Code
 
-> **Last updated:** 2026-05-13  
-> **Session:** Transfer phase hardening + admin user dynamic config  
-> **Pick up from:** Transfer phase 2 SCP→rsync done, admin SSH user/key fields fully dynamic (no hardcoded defaults). See "Transfer Phase Logic" and "Admin SSH Fields" sections below.
+> **Last updated:** 2026-05-14  
+> **Session:** Welcome screen UX + version detection hardening + local-mode detect  
+> **Pick up from:** All fixes committed through `f4f4d55`. Welcome screen requires explicit click, version detection uses sudo/auto-discovery, local mode runs commands without SSH. See "Known Issues Solved" section for full details.
 
 ---
 
@@ -430,9 +430,86 @@ If `admin_ssh_user` is empty at runtime, the app raises a descriptive error: _"a
 
 | Commit | Description |
 |---|---|
-| TBD (2026-05-13) | Transfer fixes: SCP→rsync, admin user/key fully dynamic, frontend admin key fields |
+| f4f4d55 | fix: version.php detection + welcome auto-skip guard |
+| 90ca29c | feat: 4th upgrade card + pill gating on target_configured + local SSH detect |
+| 1d8a306 | fix: welcome screen stops on landing, SSH/moodledata pills reflect remote state |
+| 2a70356 | fix: sidebar always visible (removed fileSetupComplete/dbSetupComplete guards) |
+| beb0d60 | fix: PermissionError /home/user — DATA_DIR env var, interactive port prompt |
+| d368e3b | fix: install.sh self-copy when run from /opt/moodle-dr |
+| c68d497 | fix: WorkingDirectory in systemd unit + port prompt |
+| 5ab4485 | fix: admin SSH fields fully dynamic, context.md updated |
 | 2a3832a | Moodle Upgrade module — backend upgrade.py + frontend pageUpgrade() + welcome card |
 | 6e0d6f0 | Glassmorphism UI revamp |
+
+---
+
+## Known Issues Solved (Session 2026-05-14)
+
+### 1. Welcome screen auto-redirect (fixed in `f4f4d55`)
+
+**Problem:** `welcome_seen=true` stored in `/var/lib/moodle-dr/setup-state.json` caused `initApp()` to bypass the landing page on every load, even when no real config existed.  
+**Fix:** Gate auto-skip on `hasConfig = appState.setupMode || appState.fileSetupComplete || appState.dbSetupComplete`. `welcome_seen=true` alone no longer bypasses the welcome screen.
+
+### 2. Version detection failing (fixed in `f4f4d55`)
+
+**Problem:** `moodledr` service user has no read access to `/var/www/html/moodle/version.php` (owned by `www-data`/`root`). Detection returned empty, UI showed "unknown".  
+**Fix in `backend/upgrade.py` → `_detect_moodle_on_host()`:**
+- Tries `sudo cat {path}/version.php` first (bypasses ownership)
+- Falls back to plain `cat`
+- Auto-probes `_MOODLE_COMMON_PATHS`: `/var/www/html/moodle`, `/var/www/moodle`, `/var/www/html`, `/opt/moodle`, `/srv/moodle`
+- Final fallback: `find /var/www /opt /srv -name version.php -not -path '*/mod/*' -not -path '*/blocks/*'`
+- Returns `resolved_dir` (actual path where version.php was found) and `version_php_found` (bool)
+- Regex: single-quoted string match first (`'4.1.9+'`), then generic number fallback
+
+**Fix in `frontend/index.html` → `upgradeDetect()`:**
+- Shows `resolved_dir` in success banner when auto-discovered path differs from user-supplied
+- Auto-updates `upg-src-dir` input field if path was auto-discovered
+- Better error hints: distinguishes "version.php not found" from "found but can't parse"
+
+### 3. SSH status pills gating (fixed in `90ca29c`)
+
+**Problem:** SSH and moodledata pills showed green even when no destination server was configured.  
+**Fix:** `public_api.py` `/api/public/status` now returns `target_configured` (bool) and `watchdog.connected`. Frontend gates both pills on `target_configured=false` → always grey when no destination set.
+
+### 4. Local mode detection (fixed in `90ca29c`)
+
+**Problem:** When app runs ON the source server (host=127.0.0.1 or localhost), `_ssh_cmd()` was still trying to SSH to localhost.  
+**Fix:** `_LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}` — when host is in this set, `_ssh_cmd()` runs `bash -c '{cmd}'` locally via `subprocess` instead of paramiko SSH.
+
+### 5. Sidebar hidden (fixed in `2a70356`)
+
+All nav groups were gated behind setup completion flags. Removed all conditional guards from `buildNav()` — all groups always visible from first load.
+
+### 6. PermissionError /home/user (fixed in `beb0d60`)
+
+Three backend files had hardcoded `/home/user/workspace/...` dev paths. All fixed to use `DATA_DIR` env var. Production default: `/var/lib/moodle-dr`.
+
+### 7. install.sh issues (fixed in `c68d497`, `d368e3b`)
+
+- Port prompt: interactive `read` replaces hardcoded 8080
+- `WorkingDirectory` in systemd unit: `/opt/moodle-dr/backend` (not `/opt/moodle-dr`)
+- Self-copy guard: `realpath` comparison skips `cp -r backend/` when source == dest
+
+---
+
+## Infrastructure — AWS Test Server
+
+| Component | Value |
+|---|---|
+| AWS test server | `52.14.180.2` (Ubuntu 22.04) |
+| Install dir | `/opt/moodle-dr` |
+| Data dir | `/var/lib/moodle-dr` |
+| Config dir | `/etc/moodle-dr` |
+| Service user | `moodledr` |
+| Service name | `moodle-dr` (systemd) |
+| App port | Set interactively during install |
+| Uvicorn target | `main:app` (WorkingDirectory=`/opt/moodle-dr/backend`) |
+| PYTHONPATH | `/opt/moodle-dr/backend` |
+
+To deploy on AWS test server after commits:
+```bash
+git pull && ./install.sh
+```
 
 ---
 
@@ -440,8 +517,11 @@ If `admin_ssh_user` is empty at runtime, the app raises a descriptive error: _"a
 
 1. Read this file completely
 2. Check `git log --oneline -10` to see latest commits
-3. Check `backend/upgrade.py` for current backend state
+3. Check `backend/upgrade.py` for current backend state — especially `_detect_moodle_on_host()` and `_LOCAL_HOSTS`
 4. Search `index.html` for `pageUpgrade` to find frontend state
-5. Run `grep -n "upgrade" backend/main.py` to verify router is mounted
-6. The upgrade state file is at `/opt/moodle-dr-v11/upgrade_state.json` on the production server
-7. All upgrade logs go to `/opt/moodle-dr-v11/logs/upgrade.log`
+5. Search `index.html` for `initApp` to find welcome screen auto-skip logic (`hasConfig` guard)
+6. Run `grep -n "upgrade" backend/main.py` to verify router is mounted
+7. The upgrade state file is at `/var/lib/moodle-dr/upgrade_state.json` on the server
+8. All upgrade logs go to `/var/lib/moodle-dr/logs/upgrade.log`
+9. If welcome screen still auto-redirects on server: the fix is in `f4f4d55` — `git pull && ./install.sh`
+10. If sudo cat fails (moodledr not in sudoers): add `moodledr ALL=(ALL) NOPASSWD: /bin/cat` to `/etc/sudoers.d/moodledr`
