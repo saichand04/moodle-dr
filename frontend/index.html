@@ -3983,7 +3983,7 @@ async function upgradeDetect(role) {
       if (det.moodle_version) {
         const foundAt = det.resolved_dir && det.resolved_dir !== (dir||'/var/www/html/moodle')
           ? ` (found at ${det.resolved_dir})` : '';
-        upgradeBanner('ok', `Source detected${localNote}${foundAt}: Moodle ${det.moodle_version} | PHP ${det.php_version||'?'} | ${det.db_type||'DB'} ${det.db_version||'?'}`);
+        upgradeBanner('ok', `Source detected${localNote}${escHtml(foundAt)}: Moodle ${escHtml(det.moodle_version)} | PHP ${escHtml(det.php_version||'?')} | ${escHtml(det.db_type||'DB')} ${escHtml(det.db_version||'?')}`);
         // Update the moodle dir field if auto-discovered a different path
         if (det.resolved_dir && det.resolved_dir !== (dir||'/var/www/html/moodle')) {
           const dirEl = document.getElementById('upg-src-dir');
@@ -4209,9 +4209,11 @@ function upgradeBanner(type, msg) {
   if (!el) return;
   const colors = {ok:'var(--green,#4ade80)',error:'var(--red,#f87171)',warn:'var(--amber,#f59e0b)',info:'var(--cyan)'};
   const icons  = {ok:ICONS.shield,error:ICONS.alert,warn:ICONS.alert,info:ICONS.zap};
+  // msg may contain trusted HTML (e.g. <code> fix steps) — do NOT escHtml it.
+  // All user-supplied values inside msg must already be escaped by the caller.
   el.innerHTML = `<div class="banner" style="margin-bottom:14px;border-left:3px solid ${colors[type]||colors.info}">
     <div class="banner-icon" style="color:${colors[type]||colors.info}">${icons[type]||ICONS.zap}</div>
-    <div class="banner-text"><div class="banner-body">${escHtml(msg)}</div></div>
+    <div class="banner-text"><div class="banner-body">${msg}</div></div>
   </div>`;
 }
 
