@@ -96,7 +96,7 @@ body::after{content:'';position:fixed;bottom:-20%;right:-10%;width:55%;height:60
 .wc-sub{font-size:17px;color:var(--text2);margin-bottom:8px;font-weight:400}
 .wc-desc{font-size:13px;color:var(--text3);max-width:500px;margin:0 auto 36px;line-height:1.7}
 .wc-cards{display:flex;gap:16px;justify-content:center;flex-wrap:wrap;margin-bottom:32px}
-.wc-card{background:var(--glass-2);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid var(--glass-border2);border-radius:var(--r3);padding:26px 22px;width:252px;text-align:left;cursor:pointer;transition:border-color .25s,transform .25s,box-shadow .25s;display:flex;flex-direction:column;gap:12px;position:relative;overflow:hidden}
+.wc-card{background:var(--glass-2);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid var(--glass-border2);border-radius:var(--r3);padding:26px 22px;width:230px;text-align:left;cursor:pointer;transition:border-color .25s,transform .25s,box-shadow .25s;display:flex;flex-direction:column;gap:12px;position:relative;overflow:hidden}
 .wc-card::before{content:'';position:absolute;inset:0;border-radius:inherit;background:linear-gradient(135deg,rgba(255,255,255,0.04) 0%,transparent 60%);pointer-events:none}
 .wc-card:hover{border-color:var(--glass-border3);transform:translateY(-3px);box-shadow:0 20px 60px rgba(0,0,0,.5),0 0 30px rgba(0,212,200,0.08)}
 .wc-card.featured{border-color:var(--cyan-bd);background:linear-gradient(135deg,rgba(0,212,200,0.07),rgba(224,64,251,0.05));box-shadow:0 0 40px rgba(0,212,200,0.08)}
@@ -418,6 +418,13 @@ canvas.chart{width:100%;height:100%}
         <p>Complete disaster recovery — file sync + database replication + unified DR readiness dashboard</p>
         <div class="wc-card-tags"><span class="wc-tag-pill" style="background:var(--cyan-glow);border-color:var(--cyan-bd);color:var(--cyan)">Recommended</span></div>
         <button class="wc-btn cyan" onclick="startSetup('both')">Start Full Setup</button>
+      </div>
+      <div class="wc-card" style="border-color:rgba(224,64,251,0.25);background:linear-gradient(135deg,rgba(224,64,251,0.07),rgba(124,77,255,0.05))">
+        <div class="wc-card-icon" style="background:rgba(224,64,251,0.12);border:1px solid rgba(224,64,251,0.25)"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e040fb" stroke-width="1.8"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg></div>
+        <h3>Moodle Upgrade</h3>
+        <p>Automate version upgrades — in-place, lift &amp; shift, or replica-first with multi-stage path management</p>
+        <div class="wc-card-tags"><span class="wc-tag-pill" style="background:rgba(224,64,251,0.1);border-color:rgba(224,64,251,0.25);color:#e040fb">In-Place</span><span class="wc-tag-pill" style="background:rgba(124,77,255,0.1);border-color:rgba(124,77,255,0.3);color:#a78bfa">Lift &amp; Shift</span></div>
+        <button class="wc-btn" style="background:rgba(224,64,251,0.12);border-color:rgba(224,64,251,0.3);color:#e040fb" onclick="openUpgradeFromWelcome()">Open Upgrade Manager</button>
       </div>
     </div>
     <div class="wc-actions">
@@ -864,11 +871,19 @@ async function pollTopbar() {
     ]);
 
     // ── SSH pill — watchdog SSH connectivity to DESTINATION ──
-    const wdog = s.watchdog || s.connectivity || {};
+    // Only glow if a destination is actually configured
+    const targetConfigured = s.target_configured === true;
+    const wdog = s.watchdog || {};
     let sshCls = 'unknown';
-    if (wdog.connected === true) sshCls = 'healthy';
-    else if (wdog.connected === false) sshCls = 'error';
-    else if (lsyncd.status === 'active') sshCls = 'healthy'; // lsyncd active implies SSH works
+    if (!targetConfigured) {
+      sshCls = 'unknown'; // no destination set — always grey
+    } else if (wdog.connected === true) {
+      sshCls = 'healthy';
+    } else if (wdog.connected === false) {
+      sshCls = 'error';
+    } else if (lsyncd.status === 'active') {
+      sshCls = 'healthy'; // lsyncd active implies SSH to destination works
+    }
     const sshEl = document.getElementById('sshPill');
     if (sshEl) {
       sshEl.className = `status-pill ${sshCls}`;
@@ -907,10 +922,10 @@ async function pollTopbar() {
       }
     } catch(e3) {}
 
-    // ── moodledata pill — active sync TO remote target (not local disk) ──
-    // Green = lsyncd running + target configured = actively syncing to remote
-    // Red   = lsyncd stopped/crashed
-    // Grey  = not yet configured
+    // ── moodledata pill — active sync TO remote target ──
+    // Green = lsyncd running AND destination is configured (syncing to remote)
+    // Red   = lsyncd stopped but destination was configured (sync broken)
+    // Grey  = no destination configured yet (nothing to sync to)
     const mdEl = document.getElementById('moodledataPill');
     const mdLbl = document.getElementById('moodledataPillLabel');
     if (mdEl && mdLbl) {
@@ -918,10 +933,14 @@ async function pollTopbar() {
       const shortPath = srcPath ? srcPath.replace(/\/$/, '').split('/').pop() || 'moodledata' : 'moodledata';
       mdLbl.textContent = shortPath || 'moodledata';
       const lsyncdRunning = lsyncd.status === 'active';
-      const lsyncdConfigured = !!lsyncd.status;
       let mdCls = 'unknown';
-      if (lsyncdRunning) mdCls = 'healthy';
-      else if (lsyncdConfigured) mdCls = 'error';
+      if (!targetConfigured) {
+        mdCls = 'unknown'; // no destination — always grey
+      } else if (lsyncdRunning) {
+        mdCls = 'healthy'; // destination set + lsyncd syncing = green
+      } else {
+        mdCls = 'error'; // destination configured but lsyncd down = red
+      }
       mdEl.className = `status-pill ${mdCls}`;
       const dot = mdEl.querySelector('.status-dot');
       if (dot) dot.className = `status-dot ${mdCls}`;
@@ -976,6 +995,17 @@ async function skipToApp() {
   setTimeout(()=>{ ws.style.display='none'; },650);
   document.getElementById('appShell').style.display='flex';
   showPage('dr_readiness');
+  startClock();
+  startTopbarPolling();
+}
+async function openUpgradeFromWelcome() {
+  await apiPost('/api/setup/mode',{welcome_seen:true}).catch(()=>{});
+  appState.welcomeSeen=true;
+  const ws=document.getElementById('welcome-screen');
+  ws.classList.add('fade-out');
+  setTimeout(()=>{ ws.style.display='none'; },650);
+  document.getElementById('appShell').style.display='flex';
+  showPage('upgrade');
   startClock();
   startTopbarPolling();
 }
@@ -3693,11 +3723,15 @@ async function upgradeDetect(role) {
   const user = role==='source' ? document.getElementById('upg-src-user')?.value : document.getElementById('upg-tgt-user')?.value;
   const key  = role==='source' ? document.getElementById('upg-src-key')?.value  : document.getElementById('upg-tgt-key')?.value;
   const dir  = role==='source' ? document.getElementById('upg-src-dir')?.value  : document.getElementById('upg-tgt-dir')?.value;
-  if (!host) { alert('Enter host/IP first'); return; }
-  upgradeBanner('info', `Detecting ${role} server...`);
+  if (!host) { upgradeBanner('error','Enter a host / IP address first.'); return; }
+  const isLocal = host==='127.0.0.1'||host==='localhost'||host==='::1';
+  upgradeBanner('info', isLocal
+    ? `Detecting ${role} version locally (running on this server)...`
+    : `Detecting ${role} server via SSH (${host})...`);
   try {
     const r = await apiPost('/api/upgrade/detect', {host, user:user||'root', key:key||null, moodle_dir:dir||'/var/www/html/moodle', role});
     const det = r.detected || {};
+    const localNote = det.local_mode ? ' [local]' : '';
     if (role === 'source') {
       upgradeState.detectedVersion = det.moodle_version || null;
       upgradeState.detectedPHP     = det.php_version    || null;
@@ -3708,9 +3742,17 @@ async function upgradeDetect(role) {
       if (verEl) verEl.textContent = det.moodle_version || 'Unknown';
       if (phpEl) phpEl.textContent = `PHP: ${det.php_version||'?'}  |  ${det.db_type||'DB'}: ${det.db_version||'?'}`;
       upgradeComputePath();
-      upgradeBanner('ok', `Source detected: Moodle ${det.moodle_version||'?'} | PHP ${det.php_version||'?'} | ${det.db_type||'DB'} ${det.db_version||'?'}`);
+      if (det.moodle_version) {
+        upgradeBanner('ok', `Source detected${localNote}: Moodle ${det.moodle_version} | PHP ${det.php_version||'?'} | ${det.db_type||'DB'} ${det.db_version||'?'}`);
+      } else {
+        // Detection ran but version came back blank — give a helpful hint
+        const hint = det.config_found===false
+          ? `config.php not found at ${dir||'/var/www/html/moodle'} — check Moodle Directory field`
+          : `version.php found but release string not parsed — raw: ${det.release_raw||'(empty)'}`;
+        upgradeBanner('error', `Version detection failed${localNote}: ${hint}`);
+      }
     } else {
-      upgradeBanner('ok', `Target detected: ${det.config_found ? 'Moodle found' : 'No Moodle yet'} | ${det.disk_free_gb||0} GB free`);
+      upgradeBanner('ok', `Target detected${localNote}: ${det.config_found ? 'Moodle found' : 'No Moodle yet'} | ${det.disk_free_gb||0} GB free`);
     }
   } catch(e) {
     upgradeBanner('error', `Detection failed: ${e.message||e}`);

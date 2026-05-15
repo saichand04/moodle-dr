@@ -20,12 +20,19 @@ def public_status():
     except Exception:
         pass
 
+    # A destination is "configured" when AZURE_VM_IP is set to a real address
+    target_ip = (state.AZURE_VM_IP or "").strip()
+    target_configured = bool(target_ip and target_ip not in ("0.0.0.0", ""))
+
     return {
         "ts": datetime.utcnow().isoformat(),
+        "target_configured": target_configured,
+        "target_ip": target_ip if target_configured else None,
         "file_sync": {
             "lsyncd_running": lsyncd_ok,
             "rsync_running": state.rsync_job.get("running", False),
             "last_result": state.rsync_job.get("last_result"),
+            "target_configured": target_configured,
         },
         "db_sync": {
             "status": state.db_replication_status.get("status", "unknown"),
@@ -33,6 +40,9 @@ def public_status():
             "heartbeat_lag": state.db_replication_status.get("heartbeat_lag"),
             "io_running": state.db_replication_status.get("io_running"),
             "sql_running": state.db_replication_status.get("sql_running"),
+        },
+        "watchdog": {
+            "connected": state.watchdog.connected if (state.watchdog and hasattr(state.watchdog, 'connected')) else None,
         },
         "dr_readiness": {
             "score": _calc_dr_score(),

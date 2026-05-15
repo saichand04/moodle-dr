@@ -194,8 +194,33 @@ def _download_url(version_key: str) -> str:
 # SSH helpers
 # ---------------------------------------------------------------------------
 
+_LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+def _is_local(host: str) -> bool:
+    """Return True when the host refers to this machine."""
+    return (host or "").strip().lower() in _LOCAL_HOSTS
+
 def _ssh_cmd(host: str, user: str, key: Optional[str], cmd: str, timeout: int = 60) -> Dict[str, Any]:
-    """Run a command on a remote server via SSH."""
+    """Run a command — locally via bash if host is localhost, otherwise over SSH."""
+    if _is_local(host):
+        # Local execution — no SSH needed.  Run as current process user.
+        try:
+            result = subprocess.run(
+                ["bash", "-c", cmd],
+                capture_output=True, text=True, timeout=timeout
+            )
+            return {
+                "ok": result.returncode == 0,
+                "stdout": result.stdout.strip(),
+                "stderr": result.stderr.strip(),
+                "returncode": result.returncode,
+            }
+        except subprocess.TimeoutExpired:
+            return {"ok": False, "stdout": "", "stderr": "Local command timed out", "returncode": -1}
+        except Exception as e:
+            return {"ok": False, "stdout": "", "stderr": str(e), "returncode": -1}
+
+    # Remote execution via SSH
     base = ["ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=10"]
     if key:
         base += ["-i", key]
@@ -606,8 +631,10 @@ def get_upgrade_status():
 
 @router.post("/detect")
 def detect_moodle(req: DetectRequest):
-    """SSH into a host and detect Moodle version, PHP, DB."""
+    """Detect Moodle version, PHP, DB. Runs locally if host is 127.0.0.1/localhost."""
+    local_mode = _is_local(req.host)
     det = _detect_moodle_on_host(req.host, req.user, req.key, req.moodle_dir)
+    det["local_mode"] = local_mode
     state = _load_state()
 
     if req.role == "source":
