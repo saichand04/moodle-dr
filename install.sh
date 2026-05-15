@@ -63,13 +63,18 @@ mkdir -p "$INSTALL_DIR/backend" "$INSTALL_DIR/frontend" "$DATA_DIR" "$CONFIG_DIR
 
 # ── Copy app files ─────────────────────────────────────────────────────────────
 echo "[4/7] Copying application files..."
-cp -r "$SCRIPT_DIR/backend/"  "$INSTALL_DIR/backend/"
-cp -r "$SCRIPT_DIR/frontend/" "$INSTALL_DIR/frontend/"
-cp    "$SCRIPT_DIR/requirements.txt" "$INSTALL_DIR/"
 
-# The backend modules are imported directly (not as a package).
-# Uvicorn runs with WorkingDirectory=$INSTALL_DIR/backend so all imports resolve.
-# Ensure no stale __pycache__ from a different layout causes issues.
+if [[ "$(realpath "$SCRIPT_DIR")" == "$(realpath "$INSTALL_DIR")" ]]; then
+    # Script is running from inside the install directory — no copy needed.
+    echo "  Source == install dir ($INSTALL_DIR) — skipping copy, files already in place."
+else
+    # Running from a separate clone/repo dir — copy into place.
+    cp -r "$SCRIPT_DIR/backend/"  "$INSTALL_DIR/backend/"
+    cp -r "$SCRIPT_DIR/frontend/" "$INSTALL_DIR/frontend/"
+    cp    "$SCRIPT_DIR/requirements.txt" "$INSTALL_DIR/"
+fi
+
+# Clear stale bytecache (prevents import errors after file updates)
 find "$INSTALL_DIR/backend" -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 
 chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR" "$DATA_DIR" "$CONFIG_DIR"
