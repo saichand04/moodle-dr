@@ -113,6 +113,11 @@ body::after{content:'';position:fixed;bottom:-20%;right:-10%;width:55%;height:60
 .wc-btn.cyan{background:linear-gradient(135deg,rgba(0,212,200,0.2),rgba(224,64,251,0.15));border-color:var(--cyan-bd);color:var(--cyan)}.wc-btn.cyan:hover{box-shadow:0 0 24px rgba(0,212,200,0.3)}
 .wc-skip{font-size:13px;color:var(--text3)}
 .wc-skip a{color:var(--text2);cursor:pointer;text-decoration:underline;text-decoration-color:var(--glass-border2)}
+.wc-actions{display:flex;align-items:center;justify-content:center;gap:12px;margin-top:8px;flex-wrap:wrap}
+.wc-enter-btn{height:42px;padding:0 32px;border-radius:var(--r);font-size:14px;font-weight:700;cursor:pointer;border:1px solid var(--cyan-bd);background:linear-gradient(135deg,rgba(0,212,200,0.18),rgba(224,64,251,0.12));color:var(--cyan);transition:all .25s;letter-spacing:.02em;display:flex;align-items:center;gap:8px}
+.wc-enter-btn:hover{box-shadow:0 0 28px rgba(0,212,200,0.35);transform:translateY(-1px)}
+.wc-skip-btn{height:42px;padding:0 24px;border-radius:var(--r);font-size:13px;font-weight:500;cursor:pointer;border:1px solid var(--glass-border2);background:transparent;color:var(--text3);transition:all .2s}
+.wc-skip-btn:hover{border-color:var(--glass-border3);color:var(--text2)}
 
 /* ── SHELL LAYOUT ── */
 .shell{display:flex;height:100vh;overflow:hidden;position:relative;z-index:1}
@@ -415,7 +420,14 @@ canvas.chart{width:100%;height:100%}
         <button class="wc-btn cyan" onclick="startSetup('both')">Start Full Setup</button>
       </div>
     </div>
-    <div class="wc-skip">Already configured? <a onclick="skipToApp()">Open Dashboard &rarr;</a></div>
+    <div class="wc-actions">
+      <button class="wc-enter-btn" onclick="enterAppFromWelcome()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+        Enter Dashboard
+      </button>
+      <button class="wc-skip-btn" onclick="skipToApp()" title="Skip setup and go straight to the app">Skip Setup &rarr;</button>
+    </div>
+    <div style="font-size:11px;color:var(--text3);margin-top:12px;opacity:.6">You can always return to Setup Wizard from the sidebar</div>
   </div>
 </div>
 <!-- MAIN APP SHELL -->
@@ -838,59 +850,84 @@ function renderPage(key) {
 }
 
 // ── TOPBAR POLLING ────────────────────────────────────────────────────────────
+// Pills reflect REMOTE connectivity — not local server state:
+//   SSH pill       — can we SSH into the destination/replica right now?
+//   moodledata pill — is lsyncd actively syncing moodledata TO the remote target?
+//   DB pill        — is DB replication healthy on the replica?
+//   WG pill        — is the WireGuard tunnel to the remote peer up?
 async function pollTopbar() {
   try {
-    const [s,disk,lsyncd]=await Promise.all([
+    const [s, disk, lsyncd] = await Promise.all([
       apiGet('/api/public/status'),
       apiGet('/api/health/disk'),
       apiGet('/api/lsyncd/status'),
     ]);
-    // SSH pill — green if lsyncd active (means SSH tunnel alive), else check watchdog
-    const sshOk = lsyncd.status==='active' || s.file_sync?.lsyncd_running!==false;
-    const dbSt=s.db_sync?.status;
-    // healthy=green, lagging=amber, error/stopped=red, unconfigured/unknown=grey
-    let dbOk=null;
-    if(dbSt==='healthy') dbOk=true;
-    else if(dbSt==='error'||dbSt==='stopped') dbOk=false;
-    else if(dbSt==='lagging'||dbSt==='seeding') dbOk='warn';
-    updateStatusPills(sshOk,dbOk);
-    // Also directly poll /api/db/health to keep state fresh (even when not on DB page)
-    try{
-      const dbH=await apiGet('/api/db/health');
-      if(dbH&&dbH.status){
-        const st=dbH.status;
-        let ok2=null;
-        if(st==='healthy') ok2=true;
-        else if(st==='error'||st==='stopped') ok2=false;
-        else if(st==='lagging'||st==='seeding') ok2='warn';
-        const dbEl2=document.getElementById('dbPill');
-        if(dbEl2&&ok2!==null){
-          const cls=ok2===true?'healthy':ok2===false?'error':'warn';
-          dbEl2.className=`status-pill ${cls}`;
-          dbEl2.innerHTML=`<div class="status-dot ${cls}"></div>DB`;
+
+    // ── SSH pill — watchdog SSH connectivity to DESTINATION ──
+    const wdog = s.watchdog || s.connectivity || {};
+    let sshCls = 'unknown';
+    if (wdog.connected === true) sshCls = 'healthy';
+    else if (wdog.connected === false) sshCls = 'error';
+    else if (lsyncd.status === 'active') sshCls = 'healthy'; // lsyncd active implies SSH works
+    const sshEl = document.getElementById('sshPill');
+    if (sshEl) {
+      sshEl.className = `status-pill ${sshCls}`;
+      sshEl.innerHTML = `<div class="status-dot ${sshCls}"></div>SSH`;
+    }
+
+    // ── DB pill — replication health on replica ──
+    const dbSt = s.db_sync?.status;
+    let dbOk = null;
+    if (dbSt === 'healthy') dbOk = true;
+    else if (dbSt === 'error' || dbSt === 'stopped') dbOk = false;
+    else if (dbSt === 'lagging' || dbSt === 'seeding') dbOk = 'warn';
+    if (dbOk !== null) {
+      const dbEl = document.getElementById('dbPill');
+      if (dbEl) {
+        const cls = dbOk === true ? 'healthy' : dbOk === false ? 'error' : 'warn';
+        dbEl.className = `status-pill ${cls}`;
+        dbEl.innerHTML = `<div class="status-dot ${cls}"></div>DB`;
+      }
+    }
+    // Also poll /api/db/health for fresher replica state
+    try {
+      const dbH = await apiGet('/api/db/health');
+      if (dbH && dbH.status) {
+        const st = dbH.status;
+        let ok2 = null;
+        if (st === 'healthy') ok2 = true;
+        else if (st === 'error' || st === 'stopped') ok2 = false;
+        else if (st === 'lagging' || st === 'seeding') ok2 = 'warn';
+        const dbEl2 = document.getElementById('dbPill');
+        if (dbEl2 && ok2 !== null) {
+          const cls = ok2 === true ? 'healthy' : ok2 === false ? 'error' : 'warn';
+          dbEl2.className = `status-pill ${cls}`;
+          dbEl2.innerHTML = `<div class="status-dot ${cls}"></div>DB`;
         }
       }
-    }catch(e3){}
-    // moodledata pill — green=disk<85%, amber=disk>85%, unknown=no data
-    const mdEl=document.getElementById('moodledataPill');
-    const mdLbl=document.getElementById('moodledataPillLabel');
-    if(mdEl&&mdLbl){
-      const srcPct=disk?.source?.pct;
-      const lsyncdRunning=lsyncd.status==='active';
-      // Label: show folder name from SOURCE_PATH if available
-      const srcPath=disk?.source?.path||'';
-      const shortPath=srcPath?srcPath.replace(/\/$/,'').split('/').pop()||'moodledata':'moodledata';
-      mdLbl.textContent=shortPath||'moodledata';
-      // Color: green if lsyncd running + disk ok, amber if disk>85%, red if lsyncd down
-      let cls='unknown';
-      if(lsyncdRunning && srcPct!=null && srcPct<85) cls='healthy';
-      else if(srcPct!=null && srcPct>=85) cls='warn';
-      else if(!lsyncdRunning && lsyncd.status) cls='warn';
-      mdEl.className=`status-pill ${cls}`;
-      const dot=mdEl.querySelector('.status-dot');
-      if(dot) dot.className=`status-dot ${cls}`;
+    } catch(e3) {}
+
+    // ── moodledata pill — active sync TO remote target (not local disk) ──
+    // Green = lsyncd running + target configured = actively syncing to remote
+    // Red   = lsyncd stopped/crashed
+    // Grey  = not yet configured
+    const mdEl = document.getElementById('moodledataPill');
+    const mdLbl = document.getElementById('moodledataPillLabel');
+    if (mdEl && mdLbl) {
+      const srcPath = disk?.source?.path || '';
+      const shortPath = srcPath ? srcPath.replace(/\/$/, '').split('/').pop() || 'moodledata' : 'moodledata';
+      mdLbl.textContent = shortPath || 'moodledata';
+      const lsyncdRunning = lsyncd.status === 'active';
+      const lsyncdConfigured = !!lsyncd.status;
+      let mdCls = 'unknown';
+      if (lsyncdRunning) mdCls = 'healthy';
+      else if (lsyncdConfigured) mdCls = 'error';
+      mdEl.className = `status-pill ${mdCls}`;
+      const dot = mdEl.querySelector('.status-dot');
+      if (dot) dot.className = `status-dot ${mdCls}`;
     }
-    // WireGuard pill
+
+    // ── WireGuard pill — tunnel to remote peer ──
     try {
       const wg = await apiGet('/api/integrations/wireguard/status');
       const wgEl = document.getElementById('wgPill');
@@ -899,12 +936,14 @@ async function pollTopbar() {
         wgEl.className = `status-pill ${cls}`;
         const dot = wgEl.querySelector('.status-dot');
         if (dot) dot.className = `status-dot ${cls}`;
-        wgEl.childNodes[wgEl.childNodes.length-1].textContent = wg.active ? 'WG Active' : (wg.configured ? 'WG Down' : 'WG Tunnel');
+        wgEl.childNodes[wgEl.childNodes.length - 1].textContent =
+          wg.active ? 'WG Active' : (wg.configured ? 'WG Down' : 'WG Tunnel');
       }
     } catch(e2) {}
-  } catch(e){}
+
+  } catch(e) {}
 }
-function startTopbarPolling(){ pollTopbar(); setInterval(pollTopbar,30000); }
+function startTopbarPolling() { pollTopbar(); setInterval(pollTopbar, 30000); }
 
 function toggleSidebar(){
   appState.sidebarCollapsed=!appState.sidebarCollapsed;
@@ -918,14 +957,27 @@ function toggleSidebar(){
 
 // ── WELCOME SCREEN ────────────────────────────────────────────────────────────
 async function startSetup(mode) {
-  await apiPost('/api/setup/mode',{setup_mode:mode,welcome_seen:true});
+  await apiPost('/api/setup/mode',{setup_mode:mode,welcome_seen:true}).catch(()=>{});
   appState.setupMode=mode; appState.welcomeSeen=true;
-  showPage('srv_details');
+  // Transition welcome screen out, enter app at Setup Wizard
+  const ws=document.getElementById('welcome-screen');
+  ws.classList.add('fade-out');
+  setTimeout(()=>{ ws.style.display='none'; },650);
+  document.getElementById('appShell').style.display='flex';
+  showPage('welcome');
+  startClock();
+  startTopbarPolling();
 }
 async function skipToApp() {
-  await apiPost('/api/setup/mode',{welcome_seen:true});
+  await apiPost('/api/setup/mode',{welcome_seen:true}).catch(()=>{});
   appState.welcomeSeen=true;
+  const ws=document.getElementById('welcome-screen');
+  ws.classList.add('fade-out');
+  setTimeout(()=>{ ws.style.display='none'; },650);
+  document.getElementById('appShell').style.display='flex';
   showPage('dr_readiness');
+  startClock();
+  startTopbarPolling();
 }
 function transitionToApp(firstPage) {
   const ws=document.getElementById('welcome-screen');
@@ -3922,11 +3974,47 @@ async function initUpgrade() {
     if (st.upgrade_status==='failed' && st.error_message) upgradeBanner('error', st.error_message);
     if (st.upgrade_status==='completed') upgradeBanner('ok','Previous upgrade completed successfully.');
   } catch(e) {}
+
+  // ── Auto-populate from existing DR config if fields are still blank ──
+  // Pulls source/target details already saved in File Sync + DB Sync settings
+  // so the user doesn't have to re-enter them on the Upgrade page.
+  try {
+    const cfg = await apiGet('/api/setup/config');
+    const setIfBlank = (id, val) => {
+      if (!val) return;
+      const el = document.getElementById(id);
+      if (el && !el.value) el.value = val;
+    };
+    // Source fields from DR file-sync config (this server)
+    setIfBlank('upg-src-host', cfg.src_ip || cfg.source_host || '127.0.0.1');
+    setIfBlank('upg-src-user', cfg.sync_user || cfg.azure_vm_user || 'root');
+    setIfBlank('upg-src-key',  cfg.ssh_key_path);
+    setIfBlank('upg-src-dir',  cfg.moodle_dir || '/var/www/html/moodle');
+    // Target fields from DR replica config
+    setIfBlank('upg-tgt-host', cfg.replica_ip || cfg.azure_vm_ip);
+    setIfBlank('upg-tgt-user', cfg.azure_vm_user || 'root');
+    setIfBlank('upg-tgt-key',  cfg.ssh_key_path);
+    setIfBlank('upg-tgt-dir',  cfg.moodle_dir || '/var/www/html/moodle');
+  } catch(e2) {}
 }
 
 // ═══════════════════════════════════════════════════════════════
 // ── APP INIT ──
 // ═══════════════════════════════════════════════════════════════
+function enterAppFromWelcome() {
+  // "Enter Dashboard" — go to Setup Wizard (first run) or DR Readiness (returning)
+  const ws=document.getElementById('welcome-screen');
+  ws.classList.add('fade-out');
+  setTimeout(()=>{ ws.style.display='none'; },650);
+  document.getElementById('appShell').style.display='flex';
+  // Mark welcome as seen so future loads skip this screen
+  apiPost('/api/setup/mode',{welcome_seen:true}).catch(()=>{});
+  appState.welcomeSeen=true;
+  showPage(appState.setupMode?'dr_readiness':'welcome');
+  startClock();
+  startTopbarPolling();
+}
+
 async function initApp() {
   initWelcomeCanvas();
   try {
@@ -3937,13 +4025,15 @@ async function initApp() {
     appState.dbSetupComplete=r.db_setup_complete||false;
   } catch(e){}
 
-  // Always go straight to app — DR Readiness is the default landing page.
-  // Setup Wizard is accessible from the sidebar at any time.
-  document.getElementById('welcome-screen').style.display='none';
-  document.getElementById('appShell').style.display='flex';
-  showPage('dr_readiness');
-  startClock();
-  startTopbarPolling();
+  if (appState.welcomeSeen) {
+    // Returning user — skip straight to the app
+    document.getElementById('welcome-screen').style.display='none';
+    document.getElementById('appShell').style.display='flex';
+    showPage('dr_readiness');
+    startClock();
+    startTopbarPolling();
+  }
+  // else: stay on welcome screen — user must click Enter Dashboard or Skip Setup
 }
 
 document.addEventListener('DOMContentLoaded', initApp);
