@@ -2656,7 +2656,7 @@ function pageDbSettings() {
       <button class="btn btn-ghost btn-sm adv-step-btn" id="stepBtn-push-ssl-to-replica" onclick="runStepWithSudoersGate(this)" title="Requires Check Sudoers to pass first">Push SSL to Replica</button>
       <button class="btn btn-ghost btn-sm" onclick="getReplicaSslScript()" title="Get a bash script to run manually as root on the replica — use this if Push SSL keeps failing" style="border-color:var(--yellow,#fbbf24);color:var(--yellow,#fbbf24);font-size:11px">&#128196; Get Script</button>
       <span class="step-arrow" id="arrow-2">&#8250;</span>
-      <button class="btn btn-ghost btn-sm adv-step-btn" id="stepBtn-configure-source" onclick="runStep('configure-source',this)">Configure Source</button>
+      <button class="btn btn-ghost btn-sm adv-step-btn" id="stepBtn-configure-source" onclick="runConfigureSource(this)">Configure Source</button>
       <span class="step-arrow" id="arrow-3">&#8250;</span>
       <button class="btn btn-ghost btn-sm adv-step-btn" id="stepBtn-configure-replica" onclick="runStep('configure-replica',this)">Configure Replica</button>
       <span style="color:var(--muted);padding:0 6px;align-self:center">›</span>
@@ -2822,6 +2822,70 @@ async function runStep(step, btnEl){
     <div class="banner-text"><div class="banner-title">${step}: ${r.ok?'OK':'Failed'}</div>
     <div class="banner-body">${escHtml(r.message||r.error||'')}${subStepsHtml}</div></div></div>`;
 }
+async function runConfigureSource(btnEl) {
+  // SAFETY: writing the replication cnf alone is safe.
+  // Restarting the source DB is a separate confirmation step because it
+  // briefly interrupts the live production database.
+  const btn = btnEl || document.getElementById('stepBtn-configure-source');
+  if(btn){ btn.classList.remove('step-ok','step-err'); btn.classList.add('step-running'); btn.disabled=true; }
+
+  // Step 1 — write cnf only (no restart)
+  const r = await apiPost('/api/db/setup/configure-source', {restart_db: false});
+  if(btn){ btn.classList.remove('step-running'); btn.classList.add(r.ok?'step-ok':'step-err'); btn.disabled=false; }
+
+  const el = document.getElementById('advStepResult');
+  let subStepsHtml = '';
+  if(r.steps&&r.steps.length){
+    subStepsHtml='<ul style="margin:6px 0 0 16px;font-size:11px;list-style:none;padding:0">';
+    r.steps.forEach(s=>{
+      const ic=s.ok?'\u2713':'\u2717'; const cl=s.ok?'color:var(--green)':'color:var(--red)';
+      subStepsHtml+=`<li style="${cl};margin-bottom:2px">${ic} ${escHtml(s.step)}${s.err&&!s.ok?' \u2014 '+escHtml(s.err):''}</li>`;
+    });
+    subStepsHtml+='</ul>';
+  }
+
+  if(!r.ok){
+    if(el) el.innerHTML=`<div class="banner banner-err"><div class="banner-icon">${ICONS.alert}</div><div class="banner-text"><div class="banner-title">Configure Source Failed</div><div class="banner-body">${escHtml(r.error||'')}${subStepsHtml}</div></div></div>`;
+    return;
+  }
+
+  // Step 2 — cnf written OK. Now ask about restarting the DB.
+  if(el) el.innerHTML=`<div class="banner banner-ok" style="flex-direction:column;align-items:flex-start;gap:10px">
+    <div style="display:flex;align-items:flex-start;gap:10px"><div class="banner-icon">${ICONS.check}</div>
+    <div class="banner-text"><div class="banner-title">Replication cnf written successfully</div>
+    <div class="banner-body">The replication config has been written to /etc/mysql/…/moodle-dr-source.cnf.<br>
+    <strong>The source DB has NOT been restarted yet.</strong> A restart is required for binlog/GTID changes to take effect.<br>
+    Schedule this during a maintenance window or click below to restart now.</div>${subStepsHtml}</div></div>
+    <div style="display:flex;gap:8px;padding-left:4px">
+      <button class="btn btn-sm" style="background:rgba(239,68,68,0.15);border-color:rgba(239,68,68,0.4);color:#f87171;font-weight:600"
+        onclick="restartSourceDbNow(this)">&#9888; Restart Source DB Now</button>
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('advStepResult').querySelector('.banner').remove()">Remind me later</button>
+    </div></div>`;
+}
+
+async function restartSourceDbNow(btnEl){
+  if(!confirm('This will run \"systemctl restart mariadb/mysql\" on the source server, briefly interrupting the production database. Proceed?')) return;
+  if(btnEl){ btnEl.disabled=true; btnEl.textContent='Restarting...'; }
+  const r = await apiPost('/api/db/setup/configure-source', {restart_db: true});
+  const restartStep = (r.steps||[]).find(s=>s.step&&s.step.toLowerCase().includes('restart'));
+  const ok = restartStep ? restartStep.ok : r.ok;
+  if(btnEl){ btnEl.disabled=false; }
+  showToast(ok ? 'Source DB restarted successfully' : ('Restart failed: '+(restartStep&&restartStep.err||r.error||'')), ok?'ok':'err');
+  // Refresh the step result banner
+  const el = document.getElementById('advStepResult');
+  if(el){
+    let html=`<div class="banner ${ok?'banner-ok':'banner-err'}"><div class="banner-icon">${ok?ICONS.check:ICONS.alert}</div>`;
+    html+=`<div class="banner-text"><div class="banner-title">${ok?'Source DB restarted OK':'Source DB restart failed'}</div>`;
+    if(r.steps&&r.steps.length){
+      html+='<ul style="margin:6px 0 0 16px;font-size:11px;list-style:none;padding:0">';
+      r.steps.forEach(s=>{ const ic=s.ok?'\u2713':'\u2717'; const cl=s.ok?'color:var(--green)':'color:var(--red)';
+        html+=`<li style="${cl};margin-bottom:2px">${ic} ${escHtml(s.step)}${s.err&&!s.ok?' \u2014 '+escHtml(s.err):''}</li>`; });
+      html+='</ul>';
+    }
+    html+='</div></div></div>'; el.innerHTML=html;
+  }
+}
+
 async function startPtHeartbeat(){const r=await apiPost('/api/db/pt/start-heartbeat',{});showToast(r.message||r.error||'','ok');}
 async function stopPtHeartbeat(){const r=await apiPost('/api/db/pt/stop-heartbeat',{});showToast(r.message||r.error||'','ok');}
 async function runPtChecksum(){showToast('Running pt-table-checksum...','info');const r=await apiPost('/api/db/pt/run-checksum',{});showToast(r.ok?'Checksum complete':'Checksum failed: '+(r.error||''),r.ok?'ok':'err');}

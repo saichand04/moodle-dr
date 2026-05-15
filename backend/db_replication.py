@@ -718,7 +718,13 @@ def push_ssl_to_replica():
 
 
 @router.post("/setup/configure-source")
-def configure_source():
+def configure_source(body: dict = None):
+    """
+    Writes replication cnf to source MySQL and optionally restarts the service.
+    SAFETY: restart_db defaults to False — the caller must explicitly pass
+    {"restart_db": true} to allow a source DB restart. This protects production.
+    """
+    allow_restart = bool((body or {}).get("restart_db", False))
     cfg = db_db.get_raw_db_config()
     steps = []
 
@@ -825,10 +831,17 @@ max_binlog_size          = 100M
         db_db.log_audit("configure_source", result="error", details={"error": str(e)})
         return {"ok": False, "error": str(e), "steps": steps}
 
-    # ── 5. Auto-restart source DB service ────────────────────────────────────
-    # SAFETY: only restart if SSL config is valid (or SSL is not configured).
-    # A bad SSL cnf will crash production MariaDB — never restart blindly.
-    if not ssl_paths_valid and missing_certs:
+    # ── 5. Optionally restart source DB service ───────────────────────────────
+    # SAFETY GATE 1: caller must explicitly pass restart_db=true.
+    # SAFETY GATE 2: only restart if SSL config is valid.
+    # Both gates must pass — either one blocking prevents the restart.
+    if not allow_restart:
+        steps.append({"step": f"Restart {svc_name} on source", "ok": False,
+                      "err": "Restart skipped — restart_db not set to true. "
+                             "Re-run with restart_db=true when you are ready to "
+                             "reload the production DB config (requires a brief "
+                             "service restart). cnf file has been written."})
+    elif not ssl_paths_valid and missing_certs:
         steps.append({"step": f"Restart {svc_name} on source", "ok": False,
                       "err": "Restart skipped — SSL cert paths missing or invalid. "
                              "Fix SSL cert paths then re-run Configure Source. "
@@ -837,7 +850,6 @@ max_binlog_size          = 100M
         r = run_cmd(["systemctl", "restart", svc_name], timeout=30)
         steps.append({"step": f"Restart {svc_name} on source", "ok": r["ok"], "err": r["stdout"] or r["stderr"]})
         if r["ok"]:
-            # Verify it came up
             r2 = run_cmd(["systemctl", "is-active", svc_name], timeout=10)
             steps.append({"step": f"{svc_name} service active",
                           "ok": "active" in r2["stdout"], "err": r2["stdout"]})
@@ -988,7 +1000,9 @@ async def auto_configure(background_tasks: BackgroundTasks):
             elif func_name == "push_ssl_to_replica":
                 r = push_ssl_to_replica()
             elif func_name == "configure_source":
-                r = configure_source()
+                # Auto-configure NEVER restarts the source DB automatically.
+                # User must apply the restart manually via the Advanced Setup UI.
+                r = configure_source({"restart_db": False})
             elif func_name == "configure_replica":
                 r = configure_replica()
             else:
