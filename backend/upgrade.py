@@ -259,12 +259,16 @@ def _detect_moodle_on_host(host: str, user: str, key: Optional[str], moodle_dir:
     results = {}
 
     # ── Step 1: find and read version.php ────────────────────────────────────
-    # Uses sudo cat first (bypasses www-data/root file ownership),
-    # falls back to plain cat, then auto-discovers common paths.
+    # Read strategy (each tried in order until content found):
+    #   1. sudo cat          — bypasses www-data / root ownership
+    #   2. plain cat         — works if moodledr is in www-data group
+    #   3. sudo -u www-data  — run as web server user directly
+    # find also uses sudo so it can traverse root-owned directories.
     def _read_version_php(path: str) -> str:
         cmd = (
             f"sudo cat {path}/version.php 2>/dev/null || "
-            f"cat {path}/version.php 2>/dev/null"
+            f"cat {path}/version.php 2>/dev/null || "
+            f"sudo -u www-data cat {path}/version.php 2>/dev/null"
         )
         r = _ssh_cmd(host, user, key, cmd)
         return r.get("stdout", "")
@@ -276,17 +280,33 @@ def _detect_moodle_on_host(host: str, user: str, key: Optional[str], moodle_dir:
     if "$release" in content or "$version" in content:
         version_php_content = content
     else:
-        for candidate in [p for p in _MOODLE_COMMON_PATHS if p != moodle_dir]:
+        # Try all common paths before falling back to find
+        candidates = [p for p in _MOODLE_COMMON_PATHS if p != moodle_dir]
+        for candidate in candidates:
             content = _read_version_php(candidate)
             if "$release" in content or "$version" in content:
                 version_php_content = content
                 resolved_dir = candidate
                 break
+
         if not version_php_content:
+            # sudo find so we can traverse directories owned by root/www-data
             find_r = _ssh_cmd(host, user, key,
-                "find /var/www /opt /srv -name version.php "
-                "-not -path '*/mod/*' -not -path '*/blocks/*' 2>/dev/null | head -5")
+                "sudo find /var/www /opt /srv -name version.php "
+                "-not -path '*/mod/*' -not -path '*/blocks/*' "
+                "-not -path '*/theme/*' -not -path '*/lib/*' "
+                "2>/dev/null | head -10")
+            # Also try without sudo in case sudo find isn't available
+            if not find_r.get("stdout", "").strip():
+                find_r = _ssh_cmd(host, user, key,
+                    "find /var/www /opt /srv -name version.php "
+                    "-not -path '*/mod/*' -not -path '*/blocks/*' "
+                    "-not -path '*/theme/*' -not -path '*/lib/*' "
+                    "2>/dev/null | head -10")
             for found_path in find_r.get("stdout", "").splitlines():
+                found_path = found_path.strip()
+                if not found_path:
+                    continue
                 found_dir = found_path.rsplit("/", 1)[0]
                 content = _read_version_php(found_dir)
                 if "$release" in content or "$version" in content:

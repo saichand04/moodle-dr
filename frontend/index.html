@@ -3990,10 +3990,33 @@ async function upgradeDetect(role) {
           if (dirEl) dirEl.value = det.resolved_dir;
         }
       } else {
-        const hint = !det.version_php_found
-          ? `version.php not found — tried ${det.resolved_dir||dir}. Check the Moodle Directory field.`
-          : `version.php found but \$release line not parsed — raw: "${det.release_raw||''}"`;
-        upgradeBanner('error', `Version detection failed${localNote}: ${hint}`);
+        let hint, fixSteps;
+        if (!det.version_php_found) {
+          const triedDir = det.resolved_dir || dir || '/var/www/html/moodle';
+          if (isLocal) {
+            hint = `version.php not readable at ${triedDir} (app runs as moodledr user).`;
+            fixSteps = [
+              `Check file exists: <code>ls -la ${triedDir}/version.php</code>`,
+              `Test sudo read: <code>sudo -u moodledr sudo cat ${triedDir}/version.php 2>&1 | head -3</code>`,
+              `Apply sudoers fix: <code>echo "moodledr ALL=(ALL) NOPASSWD: /bin/cat, /usr/bin/find" | sudo tee /etc/sudoers.d/moodledr && sudo chmod 0440 /etc/sudoers.d/moodledr</code>`,
+              `Add to www-data group: <code>sudo usermod -aG www-data moodledr && sudo systemctl restart moodle-dr</code>`,
+              `If Moodle is at a different path, update the Moodle Directory field above`,
+            ];
+          } else {
+            hint = `version.php not readable at ${triedDir} on ${host}.`;
+            fixSteps = [
+              `SSH in and check: <code>ls -la ${triedDir}/version.php</code>`,
+              `Verify SSH user can read it: <code>cat ${triedDir}/version.php | head -3</code>`,
+              `If path is wrong, update the Moodle Directory field above`,
+            ];
+          }
+        } else {
+          hint = `version.php found but could not parse ${"$"}release line.`;
+          fixSteps = [`Raw line: <code>${escHtml(det.release_raw||'(empty)')}</code>`];
+        }
+        const stepsHtml = '<ul style="margin:8px 0 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px">' +
+          fixSteps.map(s=>`<li style="font-size:11px;color:var(--text2);display:flex;gap:6px"><span style="color:#fbbf24;flex-shrink:0">▶</span><span>${s}</span></li>`).join('') + '</ul>';
+        upgradeBanner('error', `Version detection failed${localNote}: ${hint}${stepsHtml}`);
       }
     } else {
       upgradeBanner('ok', `Target detected${localNote}: ${det.config_found ? 'Moodle found' : 'No Moodle yet'} | ${det.disk_free_gb||0} GB free`);
