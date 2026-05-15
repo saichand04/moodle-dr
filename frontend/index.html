@@ -713,52 +713,36 @@ function initWelcomeCanvas() {
 
 // ── NAV ───────────────────────────────────────────────────────────────────────
 function buildNav() {
-  const mode=appState.setupMode;
-  const fileComplete=appState.fileSetupComplete;
-  const dbComplete=appState.dbSetupComplete;
-  const isSetupComplete=fileComplete||dbComplete;
-  const needsDB=mode==='db_only'||mode==='both'||mode==='';
-  const showFile=fileComplete||mode==='file_only'||mode==='both';
-  const showDB=dbComplete||mode==='db_only'||mode==='both';
-  const showBoth=(mode==='both')&&fileComplete&&dbComplete;
   const groups=[];
-  // DR Readiness always at top — default landing page
+  // All nav groups are always visible — setup flags do not gate access.
+  // Pages handle their own "not configured" states internally.
   groups.push({group:'DR',items:[
     {key:'dr_readiness',label:'DR Readiness',icon:'shield'},
     {key:'welcome',label:'Setup Wizard',icon:'settings'},
   ]});
-  if(showFile){
-    groups.push({group:'File Sync',items:[
-      {key:'dashboard',label:'File Sync Status',icon:'activity'},
-      {key:'transfers',label:'Transfers',icon:'bar'},
-      {key:'connectivity',label:'Connectivity',icon:'zap'},
-      {key:'failover',label:'Failover',icon:'alert'},
-      {key:'file_settings',label:'Settings',icon:'settings'},
-    ]});
-  }
-  if(showDB){
-    groups.push({group:'Database Sync',items:[
-      {key:'db_replication',label:'DB Replication Status',icon:'database'},
-      {key:'db_integrity',label:'DB Integrity',icon:'shield'},
-      {key:'db_failover',label:'DB Failover',icon:'alert'},
-      {key:'db_settings',label:'Settings',icon:'settings'},
-    ]});
-  }
-  if(showBoth){
-    groups.push({group:'Migration',items:[
-      {key:'initial_migration',label:'Initial Migration',icon:'layers'},
-      {key:'live_sync',label:'Live Sync Status',icon:'activity'},
-    ]});
-  }
-  if(isSetupComplete){
-    groups.push({group:'Integrations',items:[
-      {key:'ext_access',label:'External Access',icon:'globe'},
-      {key:'wireguard',label:'WireGuard VPN',icon:'activity'},
-      {key:'notifications',label:'Notifications',icon:'bell'},
-      {key:'openclaw',label:'OpenClaw API',icon:'cpu'},
-    ]});
-  }
-  // Moodle Upgrade — always visible, independent of DR setup state
+  groups.push({group:'File Sync',items:[
+    {key:'dashboard',label:'File Sync Status',icon:'activity'},
+    {key:'transfers',label:'Transfers',icon:'bar'},
+    {key:'connectivity',label:'Connectivity',icon:'zap'},
+    {key:'failover',label:'Failover',icon:'alert'},
+    {key:'file_settings',label:'Settings',icon:'settings'},
+  ]});
+  groups.push({group:'Database Sync',items:[
+    {key:'db_replication',label:'DB Replication Status',icon:'database'},
+    {key:'db_integrity',label:'DB Integrity',icon:'shield'},
+    {key:'db_failover',label:'DB Failover',icon:'alert'},
+    {key:'db_settings',label:'Settings',icon:'settings'},
+  ]});
+  groups.push({group:'Migration',items:[
+    {key:'initial_migration',label:'Initial Migration',icon:'layers'},
+    {key:'live_sync',label:'Live Sync Status',icon:'activity'},
+  ]});
+  groups.push({group:'Integrations',items:[
+    {key:'ext_access',label:'External Access',icon:'globe'},
+    {key:'wireguard',label:'WireGuard VPN',icon:'activity'},
+    {key:'notifications',label:'Notifications',icon:'bell'},
+    {key:'openclaw',label:'OpenClaw API',icon:'cpu'},
+  ]});
   groups.push({group:'Moodle Upgrade',items:[
     {key:'upgrade',label:'Upgrade Manager',icon:'upload'},
   ]});
