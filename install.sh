@@ -1,18 +1,18 @@
 #!/bin/bash
 # Moodle DR Dashboard — Install Script
 # Usage: sudo bash install.sh [--port PORT]
-# Defaults: port 8080, installs to /opt/moodle-dr
+# Port is prompted interactively if not passed via --port
 set -euo pipefail
 
-# ── Configurable defaults ──────────────────────────────────────────────────────
+# ── Fixed paths ────────────────────────────────────────────────────────────────
 SERVICE_USER="moodledr"
 INSTALL_DIR="/opt/moodle-dr"
 DATA_DIR="/var/lib/moodle-dr"
 CONFIG_DIR="/etc/moodle-dr"
 SERVICE_NAME="moodle-dr"
-APP_PORT=8080
 
 # ── Parse args ─────────────────────────────────────────────────────────────────
+APP_PORT=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --port) APP_PORT="$2"; shift 2 ;;
@@ -21,15 +21,32 @@ while [[ $# -gt 0 ]]; do
 done
 
 echo "=== Moodle DR Dashboard — Install ==="
-echo "  Install dir : $INSTALL_DIR"
-echo "  Port        : $APP_PORT"
 echo ""
 
-# ── Root check ─────────────────────────────────────────────────────────────────
+# ── Root check (early — needed before prompt) ──────────────────────────────────
 if [[ $EUID -ne 0 ]]; then
     echo "Error: Run as root (sudo bash install.sh)" >&2
     exit 1
 fi
+
+# ── Interactive port prompt (if not passed via --port) ─────────────────────────
+if [[ -z "$APP_PORT" ]]; then
+    while true; do
+        read -rp "Enter the port to run Moodle DR Dashboard on (e.g. 8080): " APP_PORT
+        if [[ "$APP_PORT" =~ ^[0-9]+$ ]] && (( APP_PORT >= 1 && APP_PORT <= 65535 )); then
+            break
+        else
+            echo "  Invalid — enter a number between 1 and 65535."
+            APP_PORT=""
+        fi
+    done
+fi
+
+echo "  Install dir : $INSTALL_DIR"
+echo "  Data dir    : $DATA_DIR"
+echo "  Port        : $APP_PORT"
+echo ""
+
 
 # ── Detect script location (repo root) ─────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -91,19 +108,21 @@ if [[ ! -f "$CONFIG_DIR/env" ]]; then
 # Moodle DR runtime environment
 # Edit these values and run: systemctl restart moodle-dr
 
+# Data directory — where SQLite databases and state files are stored
+DATA_DIR=$DATA_DIR
+
 # SSH sync user and key (used for rsync / file replication)
 AZURE_VM_USER=moodlesync
 SSH_KEY_PATH=/root/.ssh/moodle_rsync_ed25519
 
-# Admin SSH user is now configured via the web UI (DB Replication Settings page)
+# Admin SSH user is configured via the web UI (DB Replication Settings page)
 # Do NOT hardcode ADMIN_VM_USER here — set it through the app instead.
 
 # Moodle data paths
 SOURCE_PATH=/var/www/moodledata/
 TARGET_PATH=/moodledata/
 
-# State and log file locations
-STATE_FILE=$CONFIG_DIR/setup-state.json
+# Log file locations
 LSYNCD_LOG=/var/log/lsyncd/lsyncd.log
 LSYNCD_STATUS=/var/log/lsyncd/lsyncd-status.log
 ENVEOF

@@ -1,10 +1,14 @@
 """SQLite schema + CRUD for DB replication tracking."""
+import os
 import sqlite3
 import json
 from datetime import datetime
 from pathlib import Path
 
-DB_PATH = Path("/home/user/workspace/moodle-dr-dashboard-v11/data/transfers.db")
+# Resolve data directory from env (production: /var/lib/moodle-dr)
+# Falls back to a local ./data dir when running in development.
+_DATA_DIR = Path(os.environ.get("DATA_DIR", "") or Path(__file__).parent.parent / "data")
+DB_PATH = _DATA_DIR / "transfers.db"
 
 
 async def init_db_replication():

@@ -37,7 +37,10 @@ router = APIRouter(prefix="/api/setup", tags=["setup"])
 
 # ── Setup state persistence ────────────────────────────────────────────────────
 
-STATE_FILE = Path("/home/user/workspace/moodle-dr-dashboard-v11/data/setup-state.json")
+# Resolve data directory from env (production: /var/lib/moodle-dr)
+# Falls back to a local ./data dir when running in development.
+_DATA_DIR = Path(os.environ.get("DATA_DIR", "") or Path(__file__).parent.parent / "data")
+STATE_FILE = _DATA_DIR / "setup-state.json"
 
 _DEFAULT = {
     "completed_screens": [],
