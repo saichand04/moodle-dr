@@ -278,6 +278,38 @@ def _read_version_php_locally(path: str) -> str:
     return ""
 
 
+def _probe_local_path(path: str) -> Dict[str, Any]:
+    """
+    Classify why a local Moodle path did or did not yield a readable version.php.
+    Returns: {status, detail} where status is one of:
+      "ok"                 — file read successfully
+      "dir_missing"        — parent directory does not exist
+      "file_missing"       — directory exists, version.php does not
+      "permission_denied"  — file exists but moodledr cannot stat or read it
+      "unparseable"        — file read but no $release / $version line
+    """
+    p = Path(path)
+    parent = p if p.name == "version.php" else p
+    candidate = p if p.name == "version.php" else p / "version.php"
+    try:
+        if not parent.exists():
+            return {"status": "dir_missing", "detail": f"{parent} does not exist"}
+    except (PermissionError, OSError) as e:
+        return {"status": "permission_denied", "detail": f"cannot stat {parent}: {e}"}
+    try:
+        if not candidate.exists():
+            return {"status": "file_missing", "detail": f"{candidate} not found"}
+    except (PermissionError, OSError) as e:
+        return {"status": "permission_denied", "detail": f"cannot stat {candidate}: {e}"}
+    try:
+        content = candidate.read_text(errors="replace")
+    except (PermissionError, OSError) as e:
+        return {"status": "permission_denied", "detail": f"cannot read {candidate}: {e}"}
+    if "$release" in content or "$version" in content:
+        return {"status": "ok", "detail": f"{candidate} read ({len(content)} bytes)"}
+    return {"status": "unparseable", "detail": f"{candidate} read but no $release/$version line"}
+
+
 def _find_version_php_locally() -> List[str]:
     """Scan well-known Moodle roots for version.php using pure Python (no sudo)."""
     hits: List[str] = []
@@ -326,8 +358,13 @@ def _detect_moodle_on_host(host: str, user: str, key: Optional[str], moodle_dir:
 
     version_php_content = ""
     resolved_dir = moodle_dir
+    # Per-path diagnostics — only populated in local mode (we can introspect
+    # the file system directly). For remote hosts we only know success/fail.
+    probes: List[Dict[str, str]] = []
 
     content = _read_version_php(moodle_dir)
+    if is_local:
+        probes.append({"path": moodle_dir, **_probe_local_path(moodle_dir)})
     if "$release" in content or "$version" in content:
         version_php_content = content
     else:
@@ -335,6 +372,8 @@ def _detect_moodle_on_host(host: str, user: str, key: Optional[str], moodle_dir:
         candidates = [p for p in _MOODLE_COMMON_PATHS if p != moodle_dir]
         for candidate in candidates:
             content = _read_version_php(candidate)
+            if is_local:
+                probes.append({"path": candidate, **_probe_local_path(candidate)})
             if "$release" in content or "$version" in content:
                 version_php_content = content
                 resolved_dir = candidate
@@ -359,13 +398,32 @@ def _detect_moodle_on_host(host: str, user: str, key: Optional[str], moodle_dir:
                         "2>/dev/null | head -10")
                 found_paths = [p.strip() for p in find_r.get("stdout", "").splitlines() if p.strip()]
 
+            results["scan_hits"] = found_paths
+
             for found_path in found_paths:
                 found_dir = found_path.rsplit("/", 1)[0]
                 content = _read_version_php(found_dir)
+                if is_local:
+                    probes.append({"path": found_dir, **_probe_local_path(found_dir)})
                 if "$release" in content or "$version" in content:
                     version_php_content = content
                     resolved_dir = found_dir
                     break
+
+    if is_local:
+        results["probes"] = probes
+        # Classify the overall failure mode for the frontend
+        statuses = {p["status"] for p in probes}
+        if "ok" in statuses:
+            results["failure_kind"] = None
+        elif "permission_denied" in statuses:
+            results["failure_kind"] = "permission_denied"
+        elif "unparseable" in statuses:
+            results["failure_kind"] = "unparseable"
+        elif statuses.issubset({"dir_missing", "file_missing"}):
+            results["failure_kind"] = "not_installed"
+        else:
+            results["failure_kind"] = "unknown"
 
     results["resolved_dir"] = resolved_dir
     results["version_php_found"] = bool(version_php_content)

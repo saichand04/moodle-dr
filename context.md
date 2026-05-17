@@ -453,6 +453,16 @@ git pull && ./install.sh
 systemctl restart moodle-dr
 ```
 
+### Follow-up 2026-05-17: precise diagnostics
+A second pass added per-path diagnostics so the UI no longer always blames
+permissions. `_detect_moodle_on_host()` now returns `probes` (path + status:
+`ok` / `dir_missing` / `file_missing` / `permission_denied` / `unparseable`)
+and a `failure_kind` summary. The frontend renders distinct hints for each:
+- `not_installed` — "No Moodle installation found … install Moodle or update the Moodle Directory."
+- `permission_denied` — chmod / group-membership instructions.
+- `unparseable` — shows the raw `$release` line.
+- `unknown` — suggests redeploying and shows a `find` to run manually.
+
 ### Historical bug summary (for reference)
 - Symptom (commit `4ab9fcc`): `Detect Source Version` with host `127.0.0.1` returned _"version.php not readable at /var/www/html/moodle (app runs as moodledr user)"_.
 - Cause: under systemd (`User=moodledr`, no TTY) the chain `sudo cat … || cat … || sudo -u www-data cat …` failed at every step. `sudo` requires a TTY (`requiretty`, `use_pty`) by default; with all stderr suppressed via `2>/dev/null`, the failure was silent and the regex saw an empty document.

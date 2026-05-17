@@ -3993,15 +3993,38 @@ async function upgradeDetect(role) {
         let hint, fixSteps;
         if (!det.version_php_found) {
           const triedDir = det.resolved_dir || dir || '/var/www/html/moodle';
+          const probes = Array.isArray(det.probes) ? det.probes : [];
+          const probedList = probes.length
+            ? '<div style="margin-top:6px;font-size:11px;color:var(--text2)">Paths checked: '
+              + probes.map(p=>`<code>${escHtml(p.path)}</code> (${escHtml(p.status)})`).join(', ')
+              + '</div>'
+            : '';
           if (isLocal) {
-            hint = `version.php not readable at ${triedDir} (app runs as moodledr user).`;
-            fixSteps = [
-              `Check file exists: <code>ls -la ${triedDir}/version.php</code>`,
-              `Test sudo read: <code>sudo -u moodledr sudo cat ${triedDir}/version.php 2>&1 | head -3</code>`,
-              `Apply sudoers fix: <code>echo "moodledr ALL=(ALL) NOPASSWD: /bin/cat, /usr/bin/find" | sudo tee /etc/sudoers.d/moodledr && sudo chmod 0440 /etc/sudoers.d/moodledr</code>`,
-              `Add to www-data group: <code>sudo usermod -aG www-data moodledr && sudo systemctl restart moodle-dr</code>`,
-              `If Moodle is at a different path, update the Moodle Directory field above`,
-            ];
+            const kind = det.failure_kind || 'unknown';
+            if (kind === 'not_installed') {
+              hint = `No Moodle installation found on this server. Checked the directory you entered plus common locations (<code>/var/www/html/moodle</code>, <code>/var/www/moodle</code>, <code>/opt/moodle</code>, <code>/srv/moodle</code>) and a recursive scan of <code>/var/www</code>, <code>/opt</code>, <code>/srv</code> — no <code>version.php</code> exists in any of them.${probedList}`;
+              fixSteps = [
+                `If Moodle is installed elsewhere, update the <strong>Moodle Directory</strong> field above and click Detect again.`,
+                `If Moodle is not installed yet on this server, install it before running detection.`,
+                `Confirm from a shell: <code>sudo find /var /opt /srv -name version.php -not -path '*/mod/*' -not -path '*/blocks/*' 2>/dev/null</code>`,
+              ];
+            } else if (kind === 'permission_denied') {
+              hint = `<code>version.php</code> exists on this server but the moodledr service user cannot read it.${probedList}`;
+              fixSteps = [
+                `Make version.php world-readable: <code>sudo find /var/www /opt /srv -name version.php -exec chmod o+r {} \\;</code>`,
+                `Or add moodledr to the file's group: <code>sudo usermod -aG www-data moodledr && sudo systemctl restart moodle-dr</code>`,
+                `Then click Detect again.`,
+              ];
+            } else if (kind === 'unparseable') {
+              hint = `Read <code>version.php</code> but could not parse a <code>$release</code> line — file may be truncated or non-standard.${probedList}`;
+              fixSteps = [`Raw line: <code>${escHtml(det.release_raw||'(empty)')}</code>`];
+            } else {
+              hint = `Could not locate <code>version.php</code>. Update the Moodle Directory above or install Moodle on this host.${probedList}`;
+              fixSteps = [
+                `Confirm from a shell: <code>sudo find /var /opt /srv -name version.php 2>/dev/null | head -5</code>`,
+                `If this app was just updated, redeploy on the server: <code>cd /opt/moodle-dr && git pull && sudo ./install.sh</code>`,
+              ];
+            }
           } else {
             hint = `version.php not readable at ${triedDir} on ${host}.`;
             fixSteps = [
