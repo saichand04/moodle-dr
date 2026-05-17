@@ -102,11 +102,26 @@ fi
 # can read files owned by root or other web-server users.
 SUDOERS_FILE="/etc/sudoers.d/moodledr"
 cat > "$SUDOERS_FILE" <<'SUDOEOF'
-# Moodle DR — allow moodledr to read files as root for version detection
+# Moodle DR — allow moodledr to read files as root for version detection.
+# !requiretty and !use_pty are required because the service runs under
+# systemd without a controlling TTY; without these, sudo silently fails
+# even when NOPASSWD is granted.
+Defaults:moodledr !requiretty
+Defaults:moodledr !use_pty
 moodledr ALL=(ALL) NOPASSWD: /bin/cat, /usr/bin/find
 SUDOEOF
 chmod 0440 "$SUDOERS_FILE"
 echo "  Sudoers rule written to $SUDOERS_FILE"
+
+# Best-effort: make version.php world-readable so the moodledr service user
+# can read it directly via Python file I/O — this is the primary detection
+# path in local mode and avoids the sudo-under-systemd issue entirely.
+# version.php contains no secrets (it's just version metadata).
+for vph in /var/www/html/moodle/version.php /var/www/moodle/version.php /opt/moodle/version.php /srv/moodle/version.php; do
+    if [[ -f "$vph" ]]; then
+        chmod o+r "$vph" 2>/dev/null && echo "  Made $vph world-readable"
+    fi
+done
 
 # ── Directories ────────────────────────────────────────────────────────────────
 echo "[3/7] Creating directories..."
