@@ -453,6 +453,36 @@ git pull && ./install.sh
 systemctl restart moodle-dr
 ```
 
+### Follow-up 2026-05-17: install.sh production-safety hardening
+A user reported a prior run of `install.sh` had stopped the production
+MariaDB.  Audit + fixes:
+- `apt-get install` now runs with `--no-upgrade` (base packages and
+  mariadb-client both), so already-installed packages are never bumped
+  and dependency cascades cannot pull in libssl/libmariadb upgrades that
+  restart mariadb.
+- `NEEDRESTART_MODE=l` + `NEEDRESTART_SUSPEND=1` exported at the top —
+  Ubuntu 22.04's needrestart will only *list* services that would need a
+  restart, never restart them automatically as an apt postinst side
+  effect.
+- New `apt_preview()` helper runs `apt-get install --dry-run` before
+  every real install and prints the new/upgraded/removed package lists.
+  Detects any package matching `^(mariadb|mysql|libmariadb|libmysql)`
+  and returns a risky-flag.
+- New `db_server_running()` helper detects a running mariadbd/mysqld.
+  If risky packages would be touched AND a DB server is running, the
+  script aborts instead of proceeding.  Otherwise the user is prompted
+  to confirm.
+- `--yes` / `-y` flag added for CI/automation — skips the confirmation
+  prompts but still respects the "refuse risky changes when DB is
+  running" rule.
+- The previous `mariadb-client` guard only caught direct
+  `mariadb-server` upgrades; new guard covers `mariadb-*`, `mysql-*`,
+  `libmariadb*`, `libmysql*` transitively.
+- Removed the `chmod o+r` block on `/var/www/html/moodle/version.php`
+  added earlier today — `version.php` is already world-readable by
+  default (`-rw-r--r--`) and the dashboard installer shouldn't be
+  modifying files inside a production Moodle install.
+
 ### Follow-up 2026-05-17: precise diagnostics
 A second pass added per-path diagnostics so the UI no longer always blames
 permissions. `_detect_moodle_on_host()` now returns `probes` (path + status:

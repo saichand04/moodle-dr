@@ -1,8 +1,18 @@
 #!/bin/bash
 # Moodle DR Dashboard — Install Script
-# Usage: sudo bash install.sh [--port PORT]
+# Usage: sudo bash install.sh [--port PORT] [--yes]
 # Port is prompted interactively if not passed via --port
+# Pass --yes to skip the apt-get preview confirmation prompts (CI/automation).
 set -euo pipefail
+
+# Prevent needrestart from auto-restarting services (e.g. mariadb) after apt
+# installs.  Ubuntu 22.04+ runs needrestart from the apt postinst hook and
+# will silently restart any service whose linked libraries get upgraded —
+# that is the most likely way this script could ever bounce a production
+# MariaDB.  Force "list mode" so needrestart only reports, never acts.
+export DEBIAN_FRONTEND=noninteractive
+export NEEDRESTART_MODE=l
+export NEEDRESTART_SUSPEND=1
 
 # ── Fixed paths ────────────────────────────────────────────────────────────────
 SERVICE_USER="moodledr"
@@ -13,12 +23,68 @@ SERVICE_NAME="moodle-dr"
 
 # ── Parse args ─────────────────────────────────────────────────────────────────
 APP_PORT=""
+ASSUME_YES=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --port) APP_PORT="$2"; shift 2 ;;
+        --yes|-y) ASSUME_YES=1; shift ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
+
+# ── Safety helpers ─────────────────────────────────────────────────────────────
+confirm() {
+    # confirm "Prompt text" — returns 0 on yes, 1 on no.
+    # Skipped (auto-yes) when --yes was passed.
+    local prompt="${1:-Continue?}"
+    if [[ "$ASSUME_YES" -eq 1 ]]; then
+        echo "  $prompt [auto-yes via --yes]"
+        return 0
+    fi
+    local reply=""
+    read -rp "  $prompt [y/N] " reply || true
+    [[ "$reply" =~ ^[Yy] ]]
+}
+
+db_server_running() {
+    # Return 0 if a MariaDB/MySQL server process is currently running.
+    pgrep -x mariadbd >/dev/null 2>&1 && return 0
+    pgrep -x mysqld   >/dev/null 2>&1 && return 0
+    systemctl is-active --quiet mariadb 2>/dev/null && return 0
+    systemctl is-active --quiet mysql   2>/dev/null && return 0
+    systemctl is-active --quiet mysqld  2>/dev/null && return 0
+    return 1
+}
+
+apt_preview() {
+    # apt_preview pkg1 pkg2 …
+    # Print the dry-run summary (new / upgraded / removed) for an apt install
+    # using the same flags we'll use for real (--no-upgrade --no-install-recommends).
+    # Returns 0 if no DB-related package would be touched, 1 if it would.
+    local out new upgrade remove risky
+    out=$(apt-get install --no-install-recommends --no-upgrade --dry-run "$@" 2>&1 || true)
+
+    new=$(echo "$out"     | grep -E '^Inst '  | grep -vE '\[.* =>' | awk '{print $2}' | sort -u | tr '\n' ' ')
+    upgrade=$(echo "$out" | grep -E '^Inst '  | grep  -E '\[.* =>' | awk '{print $2}' | sort -u | tr '\n' ' ')
+    remove=$(echo "$out"  | grep -E '^Remv '                       | awk '{print $2}' | sort -u | tr '\n' ' ')
+    risky=$(echo "$out"   | grep -E '^(Inst|Remv) (mariadb|mysql|libmariadb|libmysql)' | sort -u || true)
+
+    [[ -n "${new// }"     ]] && echo "    New packages : $new"
+    [[ -n "${upgrade// }" ]] && echo "    Upgrades     : $upgrade"
+    [[ -n "${remove// }"  ]] && echo "    Removals     : $remove"
+    if [[ -z "${new// }${upgrade// }${remove// }" ]]; then
+        echo "    (no changes — already at desired versions)"
+    fi
+
+    if [[ -n "$risky" ]]; then
+        echo ""
+        echo "  ⚠ WARNING: the following DB-related packages would be touched —"
+        echo "    this can restart any running MariaDB/MySQL server:"
+        echo "$risky" | sed 's/^/      /'
+        return 1
+    fi
+    return 0
+}
 
 echo "=== Moodle DR Dashboard — Install ==="
 echo ""
@@ -59,26 +125,69 @@ fi
 
 echo "[1/7] Installing system dependencies..."
 apt-get update -qq
-# Install only the CLI client — explicitly hold back any server packages so we
-# never accidentally upgrade or restart a running MariaDB/MySQL server on this host.
-apt-get install -y \
-    python3 python3-pip python3-venv \
-    rsync openssh-client lsyncd \
-    curl net-tools \
-    --no-install-recommends -qq
 
-# Install mariadb-client only — guard against pulling in mariadb-server.
-# mariadb-client is only needed for mysqldump / mysql CLI on the source side;
-# if it would trigger a server package install or upgrade, skip it safely.
+DB_WAS_RUNNING=0
+if db_server_running; then
+    DB_WAS_RUNNING=1
+    echo "  ⚠ A MariaDB/MySQL server is currently running on this host."
+    echo "    This script will refuse to install packages that would touch the DB,"
+    echo "    and uses --no-upgrade so existing packages stay at their current version."
+fi
+
+# Base packages — Python + sync tooling.  --no-upgrade means existing packages
+# are NEVER bumped (only missing ones get installed), so dependency upgrades
+# can't cascade into a restart of mariadb / nginx / php-fpm.
+BASE_PKGS=(python3 python3-pip python3-venv rsync openssh-client lsyncd curl net-tools)
+
+echo "  Preview of base-package changes:"
+BASE_HAS_RISKY=0
+if ! apt_preview "${BASE_PKGS[@]}"; then
+    BASE_HAS_RISKY=1
+fi
+
+if (( BASE_HAS_RISKY == 1 )); then
+    if (( DB_WAS_RUNNING == 1 )); then
+        echo ""
+        echo "  Refusing to install base packages: DB packages would be touched"
+        echo "  while a MariaDB/MySQL server is running.  Run this during a"
+        echo "  maintenance window, or stop the DB first."
+        exit 1
+    fi
+    if ! confirm "Proceed with base-package install despite DB-related changes?"; then
+        echo "  Aborted by user.  No packages were changed."
+        exit 1
+    fi
+else
+    if ! confirm "Proceed with base-package install?"; then
+        echo "  Aborted by user.  No packages were changed."
+        exit 1
+    fi
+fi
+
+apt-get install -y --no-upgrade --no-install-recommends -qq "${BASE_PKGS[@]}"
+
+# mariadb-client — only the CLI tools (mysqldump, mysql).  Strict guard:
+# refuse if the dry-run shows ANY mariadb-* / mysql-* / libmariadb / libmysql
+# package would be installed-or-upgraded, since those trigger postinst hooks
+# that restart the running server even with NEEDRESTART_MODE=l.
 if apt-cache show mariadb-client &>/dev/null 2>&1; then
-    # Check whether installing mariadb-client would drag in or upgrade mariadb-server.
-    WOULD_INSTALL=$(apt-get install --dry-run mariadb-client 2>/dev/null | grep -E '^Inst mariadb-server' || true)
-    if [[ -z "$WOULD_INSTALL" ]]; then
-        apt-get install -y mariadb-client --no-install-recommends -qq
-        echo "  Installed mariadb-client"
+    echo ""
+    echo "  Preview of mariadb-client install:"
+    if apt_preview mariadb-client; then
+        apt-get install -y --no-upgrade --no-install-recommends -qq mariadb-client
+        echo "  Installed mariadb-client (no DB-related package changes)"
     else
-        echo "  Skipped mariadb-client (would upgrade mariadb-server on this host — not safe)"
-        echo "  Install manually if needed: apt-get install mariadb-client"
+        if (( DB_WAS_RUNNING == 1 )); then
+            echo "  Skipped mariadb-client — would touch DB packages while a DB server is running."
+            echo "  Install manually during a maintenance window: apt-get install mariadb-client"
+        else
+            if confirm "No DB server running — install mariadb-client anyway?"; then
+                apt-get install -y --no-upgrade --no-install-recommends -qq mariadb-client
+                echo "  Installed mariadb-client"
+            else
+                echo "  Skipped mariadb-client."
+            fi
+        fi
     fi
 fi
 
@@ -113,15 +222,11 @@ SUDOEOF
 chmod 0440 "$SUDOERS_FILE"
 echo "  Sudoers rule written to $SUDOERS_FILE"
 
-# Best-effort: make version.php world-readable so the moodledr service user
-# can read it directly via Python file I/O — this is the primary detection
-# path in local mode and avoids the sudo-under-systemd issue entirely.
-# version.php contains no secrets (it's just version metadata).
-for vph in /var/www/html/moodle/version.php /var/www/moodle/version.php /opt/moodle/version.php /srv/moodle/version.php; do
-    if [[ -f "$vph" ]]; then
-        chmod o+r "$vph" 2>/dev/null && echo "  Made $vph world-readable"
-    fi
-done
+# Note: we intentionally do NOT touch /var/www/html/moodle/version.php here.
+# Detection works via (a) moodledr's www-data group membership above, and
+# (b) version.php's default -rw-r--r-- mode being world-readable already.
+# Modifying files inside a production Moodle install from the dashboard
+# installer would cross a boundary that the user does not expect.
 
 # ── Directories ────────────────────────────────────────────────────────────────
 echo "[3/7] Creating directories..."
