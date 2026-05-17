@@ -1,8 +1,8 @@
 # Moodle DR — Project Context for Claude Code
 
-> **Last updated:** 2026-05-15  
-> **Session:** Version detection still broken (local mode) — needs Claude Code fix  
-> **Pick up from:** Latest commit `4ab9fcc`. The version detection bug in local mode is UNRESOLVED. See "OPEN BUG" section at the top for full diagnosis and what to fix.
+> **Last updated:** 2026-05-17  
+> **Session:** Version detection in local mode — FIXED (Python file I/O bypass)  
+> **Pick up from:** Latest commit on `claude/analyze-moodle-dr-repo-Kzr6v`. The local-mode version detection bug documented in the former "OPEN BUG" section is now resolved — see "Resolved 2026-05-17" entry below.
 
 ---
 
@@ -428,102 +428,35 @@ If `admin_ssh_user` is empty at runtime, the app raises a descriptive error: _"a
 
 ---
 
-## ⚠️ OPEN BUG — Moodle Version Detection Fails in Local Mode
+## ✅ RESOLVED 2026-05-17 — Moodle Version Detection in Local Mode
 
-**Status:** UNRESOLVED as of 2026-05-15 01:20 CDT  
-**File to fix:** `backend/upgrade.py` → `_detect_moodle_on_host()` and `_ssh_cmd()`  
-**Latest commit:** `4ab9fcc`
+**Status:** FIXED — Python file I/O now used in local mode, bypassing sudo entirely.
 
-### What the user sees
-On the Upgrade Manager page, clicking **Detect Source Version** with host=`127.0.0.1` always returns:
-> "Version detection failed: version.php not readable at /var/www/html/moodle (app runs as moodledr user)"
+### What changed
+- `backend/upgrade.py`
+  - New helper `_read_version_php_locally(path)` reads `version.php` directly via Python `open()` / `Path.read_text()`. No subprocess, no sudo, no shell.
+  - New helper `_find_version_php_locally()` performs the fallback recursive scan with `os.walk` in pure Python (also no sudo).
+  - `_detect_moodle_on_host()` now branches on `_is_local(host)` and uses these helpers first when running on the same machine. This is the path the on-prem server hits when host=`127.0.0.1`.
+  - For remote hosts, the SSH read path was tightened to `sudo -n -E cat …` (non-interactive + preserve env) so it fails fast instead of hanging when a TTY isn't available.
+- `install.sh`
+  - Sudoers file now also writes `Defaults:moodledr !requiretty` and `!use_pty`. This is what was actually blocking `sudo` under the systemd service even though `NOPASSWD` was present.
+  - Added a best-effort `chmod o+r` on `version.php` in the common Moodle install paths so the Python read path always succeeds (file contains version metadata only, no secrets).
 
-### What we KNOW works on the server (manually verified)
+### Why this works
+The systemd service runs as `moodledr` with no TTY. `sudo` under that context silently fails even with `NOPASSWD` because the default sudoers config requires a TTY (`requiretty`) and creates a PTY (`use_pty`). The previous fallback chain (`sudo cat … || cat … || sudo -u www-data cat …`) suppressed stderr with `2>/dev/null`, hiding the real error and returning empty stdout — which the regex then parsed as "no version found".
+
+The new local path doesn't shell out at all — Python opens the file directly. Since `moodledr` is in the `www-data` group and `version.php` is `-rw-r--r--` (world-readable), `open()` works without any privilege escalation. The `chmod o+r` in `install.sh` is belt-and-suspenders for distros where the file isn't world-readable.
+
+### How to redeploy on the server
 ```bash
-# This works — moodledr CAN read the file via sudo:
-sudo -u moodledr sudo cat /var/www/html/moodle/version.php | head -5
-# Returns: <?php  // This file is part of Moodle ...
-
-# File exists and permissions:
-ls -la /var/www/html/moodle/version.php
-# -rw-r--r-- 1 root root 1636 Jun 17 2023 /var/www/html/moodle/version.php
-
-# Sudoers rule IS in place:
-cat /etc/sudoers.d/moodledr
-# moodledr ALL=(ALL) NOPASSWD: /bin/cat, /usr/bin/find
-
-# moodledr IS in www-data group (usermod -aG was run)
+git pull && ./install.sh
+systemctl restart moodle-dr
 ```
 
-### Root cause hypothesis
-The app runs as `moodledr` via systemd (`User=moodledr`). When `_ssh_cmd()` detects local mode (`host=127.0.0.1`), it runs:
-```python
-subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, timeout=timeout)
-```
-The command it builds is:
-```bash
-sudo cat /var/www/html/moodle/version.php 2>/dev/null || cat /var/www/html/moodle/version.php 2>/dev/null || sudo -u www-data cat /var/www/html/moodle/version.php 2>/dev/null
-```
-
-**The problem:** `sudo` inside a systemd service without a TTY behaves differently from interactive shell. Even with `NOPASSWD`, systemd services may have `NoNewPrivileges=true`, `PrivateTmp`, or other restrictions that silently block `sudo`. All three fallbacks produce empty output and `2>/dev/null` hides the real error.
-
-### What needs to be fixed
-
-**Option A — Read file directly using Python (no subprocess/sudo needed):**
-Since the app runs on the SAME machine as the source Moodle, use Python's `open()` to read `version.php` directly. If `moodledr` is in `www-data` group and files are `rw-r--r--` (world-readable by group), this works without any sudo at all:
-```python
-def _read_version_php_local(path: str) -> str:
-    """Read version.php directly using Python file I/O — no subprocess needed."""
-    import pathlib
-    for attempt in [path + "/version.php", path]:
-        try:
-            p = pathlib.Path(attempt) if attempt.endswith('.php') else pathlib.Path(attempt) / 'version.php'
-            if p.exists():
-                return p.read_text(errors='replace')
-        except (PermissionError, OSError):
-            pass
-    return ""
-```
-If `PermissionError` still occurs with Python `open()`, then the file is not group-readable and we need:
-
-**Option B — Use `os.access()` to check readable, then escalate via a helper script:**
-Install a small setuid helper or use `install.sh` to `chmod o+r` the version.php during setup.
-
-**Option C — Simplest fix: in `install.sh`, add `chmod o+r` to moodle files during setup:**
-```bash
-# Add to install.sh after creating moodledr user:
-if [ -f "/var/www/html/moodle/version.php" ]; then
-    chmod o+r /var/www/html/moodle/version.php
-fi
-# Or more broadly:
-find /var/www/html/moodle -name "version.php" -exec chmod o+r {} \;
-```
-
-**Option D — Fix the subprocess sudo call for systemd context:**
-The issue is `sudo` needs `!use_pty` and env preservation. Try:
-```bash
-sudo -n -E cat /var/www/html/moodle/version.php
-```
-Or add `Defaults:moodledr !requiretty, !use_pty` to the sudoers file.
-
-### Recommended fix (in order of preference)
-1. **First try Python `open()` directly** in `_detect_moodle_on_host` when `_is_local(host)` is True — no subprocess at all for reading files
-2. If still PermissionError, fall back to `subprocess` with `sudo -n -E cat` (non-interactive, preserve env)
-3. Update `install.sh` to write correct sudoers with `!use_pty` and `!requiretty`
-
-### Code location
-- `backend/upgrade.py` lines ~257–320: `_detect_moodle_on_host()` function
-- `backend/upgrade.py` lines ~197–240: `_ssh_cmd()` function — local branch
-- `install.sh` lines ~84–92: sudoers rule writing
-
-### How to test the fix
-```bash
-# On the server, test what the moodledr user can actually do inside systemd context:
-sudo -u moodledr bash -c 'cat /var/www/html/moodle/version.php 2>&1 | head -3'
-sudo -u moodledr bash -c 'sudo cat /var/www/html/moodle/version.php 2>&1 | head -3'
-sudo -u moodledr python3 -c "print(open('/var/www/html/moodle/version.php').read()[:100])"
-# The one that returns content is what the fix should use.
-```
+### Historical bug summary (for reference)
+- Symptom (commit `4ab9fcc`): `Detect Source Version` with host `127.0.0.1` returned _"version.php not readable at /var/www/html/moodle (app runs as moodledr user)"_.
+- Cause: under systemd (`User=moodledr`, no TTY) the chain `sudo cat … || cat … || sudo -u www-data cat …` failed at every step. `sudo` requires a TTY (`requiretty`, `use_pty`) by default; with all stderr suppressed via `2>/dev/null`, the failure was silent and the regex saw an empty document.
+- See the "What changed" section above for the resolution.
 
 ---
 

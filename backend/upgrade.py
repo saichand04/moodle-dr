@@ -254,21 +254,72 @@ _MOODLE_COMMON_PATHS = [
     "/srv/moodle",
 ]
 
+# Directories scanned when falling back to a recursive search for version.php
+_MOODLE_SEARCH_ROOTS = ["/var/www", "/opt", "/srv"]
+_MOODLE_SEARCH_EXCLUDE_DIRS = {"mod", "blocks", "theme", "lib"}
+
+
+def _read_version_php_locally(path: str) -> str:
+    """
+    Read {path}/version.php (or path itself if it ends with version.php) using
+    pure Python file I/O. Used in local mode so we don't shell out through
+    sudo — systemd services have NoNewPrivileges / no-TTY semantics that
+    silently break `sudo` even with NOPASSWD.
+
+    Returns the file content on success, empty string on any failure.
+    """
+    p = Path(path)
+    candidate = p if p.name == "version.php" else p / "version.php"
+    try:
+        if candidate.is_file():
+            return candidate.read_text(errors="replace")
+    except (PermissionError, OSError):
+        pass
+    return ""
+
+
+def _find_version_php_locally() -> List[str]:
+    """Scan well-known Moodle roots for version.php using pure Python (no sudo)."""
+    hits: List[str] = []
+    for root in _MOODLE_SEARCH_ROOTS:
+        root_path = Path(root)
+        if not root_path.is_dir():
+            continue
+        try:
+            for dirpath, dirnames, filenames in os.walk(root_path, followlinks=False):
+                # Prune Moodle sub-trees that contain unrelated version.php files
+                dirnames[:] = [d for d in dirnames if d not in _MOODLE_SEARCH_EXCLUDE_DIRS]
+                if "version.php" in filenames:
+                    hits.append(str(Path(dirpath) / "version.php"))
+                    if len(hits) >= 10:
+                        return hits
+        except (PermissionError, OSError):
+            continue
+    return hits
+
+
 def _detect_moodle_on_host(host: str, user: str, key: Optional[str], moodle_dir: str) -> Dict[str, Any]:
     """Detect Moodle version, PHP version, and DB version on a host (local or remote)."""
     results = {}
+    is_local = _is_local(host)
 
     # ── Step 1: find and read version.php ────────────────────────────────────
-    # Read strategy (each tried in order until content found):
-    #   1. sudo cat          — bypasses www-data / root ownership
-    #   2. plain cat         — works if moodledr is in www-data group
-    #   3. sudo -u www-data  — run as web server user directly
-    # find also uses sudo so it can traverse root-owned directories.
+    # In local mode, the app runs on the same machine as Moodle. We prefer
+    # pure Python file I/O over any sudo / subprocess approach because the
+    # service runs under systemd (no TTY, NoNewPrivileges may apply) and
+    # `sudo` silently fails in that context even when NOPASSWD is configured.
+    #
+    # For remote hosts we fall back to the historical SSH read strategy:
+    #   1. sudo -n -E cat       — non-interactive, preserves env; bypasses ownership
+    #   2. plain cat            — works if moodledr is in www-data group
+    #   3. sudo -n -u www-data  — run as web server user directly
     def _read_version_php(path: str) -> str:
+        if is_local:
+            return _read_version_php_locally(path)
         cmd = (
-            f"sudo cat {path}/version.php 2>/dev/null || "
+            f"sudo -n -E cat {path}/version.php 2>/dev/null || "
             f"cat {path}/version.php 2>/dev/null || "
-            f"sudo -u www-data cat {path}/version.php 2>/dev/null"
+            f"sudo -n -u www-data cat {path}/version.php 2>/dev/null"
         )
         r = _ssh_cmd(host, user, key, cmd)
         return r.get("stdout", "")
@@ -290,23 +341,25 @@ def _detect_moodle_on_host(host: str, user: str, key: Optional[str], moodle_dir:
                 break
 
         if not version_php_content:
-            # sudo find so we can traverse directories owned by root/www-data
-            find_r = _ssh_cmd(host, user, key,
-                "sudo find /var/www /opt /srv -name version.php "
-                "-not -path '*/mod/*' -not -path '*/blocks/*' "
-                "-not -path '*/theme/*' -not -path '*/lib/*' "
-                "2>/dev/null | head -10")
-            # Also try without sudo in case sudo find isn't available
-            if not find_r.get("stdout", "").strip():
+            if is_local:
+                found_paths = _find_version_php_locally()
+            else:
+                # sudo find so we can traverse directories owned by root/www-data
                 find_r = _ssh_cmd(host, user, key,
-                    "find /var/www /opt /srv -name version.php "
+                    "sudo -n find /var/www /opt /srv -name version.php "
                     "-not -path '*/mod/*' -not -path '*/blocks/*' "
                     "-not -path '*/theme/*' -not -path '*/lib/*' "
                     "2>/dev/null | head -10")
-            for found_path in find_r.get("stdout", "").splitlines():
-                found_path = found_path.strip()
-                if not found_path:
-                    continue
+                # Also try without sudo in case sudo find isn't available
+                if not find_r.get("stdout", "").strip():
+                    find_r = _ssh_cmd(host, user, key,
+                        "find /var/www /opt /srv -name version.php "
+                        "-not -path '*/mod/*' -not -path '*/blocks/*' "
+                        "-not -path '*/theme/*' -not -path '*/lib/*' "
+                        "2>/dev/null | head -10")
+                found_paths = [p.strip() for p in find_r.get("stdout", "").splitlines() if p.strip()]
+
+            for found_path in found_paths:
                 found_dir = found_path.rsplit("/", 1)[0]
                 content = _read_version_php(found_dir)
                 if "$release" in content or "$version" in content:
